@@ -1,5 +1,6 @@
 import {
   createProvenanceRecord,
+  createProvenanceProof,
   type ProvenanceAction,
 } from "./provenance";
 
@@ -150,10 +151,17 @@ function executeAuthorizedTransformation(
 
   console.log("STATUS: AUTHORIZED");
   console.log(`Derived Asset: ${derivedAssetId}`);
-  console.log("PROVENANCE CREATED:");
+    console.log("PROVENANCE CREATED:");
   console.log(provenance);
 
-  return provenance;
+  const proof = createProvenanceProof(provenance);
+
+  console.log("\nPROVENANCE PROOF");
+  console.log("==============================");
+  console.log(`HASH ALGORITHM: ${proof.hashAlgorithm}`);
+  console.log(`SHA-256: ${proof.provenanceHash}`);
+
+  return proof;
 }
 
 executeAuthorizedTransformation(
