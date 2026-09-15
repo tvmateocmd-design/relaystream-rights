@@ -1,3 +1,8 @@
+import {
+  createProvenanceRecord,
+  type ProvenanceAction,
+} from "./provenance";
+
 type Permission = "allow" | "deny";
 
 type RightsAction =
@@ -115,3 +120,44 @@ for (const action of requests) {
     );
   }
 }
+
+function executeAuthorizedTransformation(
+  asset: MediaAsset,
+  action: ProvenanceAction,
+  derivedAssetId: string
+) {
+  const verification = verifyPermission(asset, action);
+
+  console.log("\n==============================");
+  console.log("TRANSFORMATION REQUEST");
+  console.log("==============================");
+  console.log(`Source Asset: ${asset.assetId}`);
+  console.log(`Requested Action: ${action}`);
+
+  if (!verification.authorized) {
+    console.log("STATUS: BLOCKED");
+    console.log(`REASON: ${verification.reason}`);
+    return null;
+  }
+
+  const provenance = createProvenanceRecord(
+    asset.assetId,
+    derivedAssetId,
+    asset.policy.policyId,
+    action,
+    asset.owner
+  );
+
+  console.log("STATUS: AUTHORIZED");
+  console.log(`Derived Asset: ${derivedAssetId}`);
+  console.log("PROVENANCE CREATED:");
+  console.log(provenance);
+
+  return provenance;
+}
+
+executeAuthorizedTransformation(
+  demoAsset,
+  "transcoding",
+  "relaystream-demo-002"
+);
