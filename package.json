@@ -1,0 +1,26 @@
+{
+  "name": "relaystream-rights",
+  "version": "1.0.0",
+  "description": "Programmable media rights infrastructure on Solana. RelayStream Rights enables machine-readable licensing, permission verification, and provenance so applications and AI agents can determine what they are authorized to do with digital media. Built for Colosseum Crypto World’s Fair 2026.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tvmateocmd-design/relaystream-rights.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tvmateocmd-design/relaystream-rights/issues"
+  },
+  "homepage": "https://github.com/tvmateocmd-design/relaystream-rights#readme",
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
