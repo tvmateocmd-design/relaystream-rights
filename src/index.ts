@@ -42,7 +42,7 @@ interface VerificationResult {
   reason: string;
 }
 
-const demoAsset: MediaAsset = {
+export const demoAsset: MediaAsset = {
   assetId: "relaystream-demo-001",
   title: "RelayStream Demo Media",
   owner: "RelayStream",
@@ -59,7 +59,7 @@ const demoAsset: MediaAsset = {
   },
 };
 
-function verifyPermission(
+export function verifyPermission(
   asset: MediaAsset,
   action: RightsAction
 ): VerificationResult {
@@ -90,39 +90,7 @@ function verifyPermission(
   };
 }
 
-const requests: RightsAction[] = [
-  "derivatives",
-  "transcoding",
-  "aiTraining",
-  "commercialUse",
-];
-
-console.log("\nRELAYSTREAM RIGHTS");
-console.log("==================");
-console.log(`Asset: ${demoAsset.title}`);
-console.log(`Owner: ${demoAsset.owner}`);
-console.log(`Policy: ${demoAsset.policy.policyId}`);
-
-for (const action of requests) {
-  const result = verifyPermission(demoAsset, action);
-
-  console.log("\n------------------------------");
-  console.log(`ACTION: ${action}`);
-  console.log(`DECISION: ${result.decision.toUpperCase()}`);
-  console.log(`AUTHORIZED: ${result.authorized}`);
-  console.log(`REASON: ${result.reason}`);
-
-  if (result.authorized) {
-    console.log(
-      `ATTRIBUTION REQUIRED: ${result.attributionRequired}`
-    );
-    console.log(
-      `PROVENANCE REQUIRED: ${result.provenanceRequired}`
-    );
-  }
-}
-
-function executeAuthorizedTransformation(
+export function executeAuthorizedTransformation(
   asset: MediaAsset,
   action: ProvenanceAction,
   derivedAssetId: string
@@ -151,7 +119,7 @@ function executeAuthorizedTransformation(
 
   console.log("STATUS: AUTHORIZED");
   console.log(`Derived Asset: ${derivedAssetId}`);
-    console.log("PROVENANCE CREATED:");
+  console.log("PROVENANCE CREATED:");
   console.log(provenance);
 
   const proof = createProvenanceProof(provenance);
@@ -164,8 +132,3 @@ function executeAuthorizedTransformation(
   return proof;
 }
 
-executeAuthorizedTransformation(
-  demoAsset,
-  "transcoding",
-  "relaystream-demo-002"
-);

@@ -3,31 +3,34 @@ import {
   clusterApiUrl,
 } from "@solana/web3.js";
 
-const TRANSACTION_SIGNATURE =
-  "37wLEh4L2xC3oyYZuQx1xYzjDFP1Y7v2XEMbpaEf3aZhXhwiHBwuSip9scNx6XSrg73on7kh8dbFo8fVDwBJgx2b";
+export interface VerificationResult {
+  verified: boolean;
+  signature: string;
+  expectedHash: string;
+  memo: string;
+}
 
-const EXPECTED_PROVENANCE_HASH =
-  "5b53dc6c3a29bd694d0e75f91e7658fe2bbffab72e66acc0d32f41d00ac52477";
-
-const EXPECTED_MEMO =
-  `relaystream-rights:v1:sha256:${EXPECTED_PROVENANCE_HASH}`;
-
-async function main() {
+export async function verifyProvenanceOnChain(
+  signature: string,
+  expectedHash: string
+): Promise<VerificationResult> {
   const connection = new Connection(
     clusterApiUrl("devnet"),
     "confirmed"
   );
 
+  const expectedMemo =
+    `relaystream-rights:v1:sha256:${expectedHash}`;
+
   console.log("\n==============================");
-  console.log("RELAYSTREAM RIGHTS");
   console.log("ON-CHAIN PROVENANCE VERIFIER");
   console.log("==============================");
   console.log("NETWORK: DEVNET");
   console.log("FETCHING TRANSACTION...");
-  console.log(TRANSACTION_SIGNATURE);
+  console.log(signature);
 
   const transaction = await connection.getTransaction(
-    TRANSACTION_SIGNATURE,
+    signature,
     {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
@@ -35,12 +38,15 @@ async function main() {
   );
 
   if (!transaction) {
-    throw new Error("Transaction was not found on Solana Devnet.");
+    throw new Error(
+      "Transaction was not found on Solana Devnet."
+    );
   }
 
   console.log("\nTRANSACTION: FOUND");
 
-  const logMessages = transaction.meta?.logMessages ?? [];
+  const logMessages =
+    transaction.meta?.logMessages ?? [];
 
   const memoLog = logMessages.find((log) =>
     log.includes("relaystream-rights:v1:sha256:")
@@ -55,21 +61,20 @@ async function main() {
   console.log("\nON-CHAIN MEMO:");
   console.log(memoLog);
 
-  const hashFound = memoLog.includes(
-    EXPECTED_PROVENANCE_HASH
-  );
+  const hashMatches =
+    memoLog.includes(expectedMemo);
 
   console.log("\n==============================");
   console.log("PROVENANCE VERIFICATION");
   console.log("==============================");
+
   console.log("EXPECTED HASH:");
-  console.log(EXPECTED_PROVENANCE_HASH);
+  console.log(expectedHash);
 
-  console.log("\nEXPECTED MEMO:");
-  console.log(EXPECTED_MEMO);
-
-  if (!hashFound) {
+  if (!hashMatches) {
     console.log("\nSTATUS: VERIFICATION FAILED");
+    console.log("HASH MATCH: FALSE");
+
     throw new Error(
       "On-chain provenance hash does not match expected hash."
     );
@@ -77,13 +82,11 @@ async function main() {
 
   console.log("\nSTATUS: VERIFIED");
   console.log("HASH MATCH: TRUE");
-  console.log(
-    "RESULT: On-chain provenance proof matches the expected RelayStream Rights provenance hash."
-  );
-}
 
-main().catch((error) => {
-  console.error("\nVERIFICATION FAILED");
-  console.error(error);
-  process.exit(1);
-});
+  return {
+    verified: true,
+    signature,
+    expectedHash,
+    memo: expectedMemo,
+  };
+}
