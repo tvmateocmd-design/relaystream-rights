@@ -3,24 +3,34 @@ import {
   clusterApiUrl,
 } from "@solana/web3.js";
 
+import {
+  hashProvenanceRecord,
+  type ProvenanceRecord,
+} from "./provenance";
+
 export interface VerificationResult {
   verified: boolean;
   signature: string;
-  expectedHash: string;
-  memo: string;
+  computedHash: string;
+  expectedMemo: string;
+  onChainMemo: string;
 }
 
 export async function verifyProvenanceOnChain(
   signature: string,
-  expectedHash: string
+  record: ProvenanceRecord
 ): Promise<VerificationResult> {
   const connection = new Connection(
     clusterApiUrl("devnet"),
     "confirmed"
   );
 
+  // Independently recompute the SHA-256 fingerprint
+  // from the provenance record being verified.
+  const computedHash = hashProvenanceRecord(record);
+
   const expectedMemo =
-    `relaystream-rights:v1:sha256:${expectedHash}`;
+    `relaystream-rights:v1:sha256:${computedHash}`;
 
   console.log("\n==============================");
   console.log("ON-CHAIN PROVENANCE VERIFIER");
@@ -61,23 +71,27 @@ export async function verifyProvenanceOnChain(
   console.log("\nON-CHAIN MEMO:");
   console.log(memoLog);
 
-  const hashMatches =
-    memoLog.includes(expectedMemo);
-
   console.log("\n==============================");
   console.log("PROVENANCE VERIFICATION");
   console.log("==============================");
 
-  console.log("EXPECTED HASH:");
-  console.log(expectedHash);
+  console.log("RECOMPUTED HASH:");
+  console.log(computedHash);
+
+  const hashMatches =
+    memoLog.includes(expectedMemo);
 
   if (!hashMatches) {
     console.log("\nSTATUS: VERIFICATION FAILED");
     console.log("HASH MATCH: FALSE");
 
-    throw new Error(
-      "On-chain provenance hash does not match expected hash."
-    );
+    return {
+      verified: false,
+      signature,
+      computedHash,
+      expectedMemo,
+      onChainMemo: memoLog,
+    };
   }
 
   console.log("\nSTATUS: VERIFIED");
@@ -86,7 +100,8 @@ export async function verifyProvenanceOnChain(
   return {
     verified: true,
     signature,
-    expectedHash,
-    memo: expectedMemo,
+    computedHash,
+    expectedMemo,
+    onChainMemo: memoLog,
   };
 }

@@ -75,8 +75,8 @@ async function runDemo() {
   }
 
   /*
-   * Execute the authorized transformation.
-   * This creates provenance and its SHA-256 proof.
+   * Execute authorized transformation.
+   * Creates provenance record and SHA-256 proof.
    */
 
   const proof = executeAuthorizedTransformation(
@@ -95,8 +95,7 @@ async function runDemo() {
   console.log(`SHA-256: ${proof.provenanceHash}`);
 
   /*
-   * Anchor the exact provenance hash generated
-   * by this transformation to Solana Devnet.
+   * Anchor the provenance proof to Solana Devnet.
    */
 
   const anchor = await anchorProvenanceProof(
@@ -107,15 +106,80 @@ async function runDemo() {
   console.log(`SIGNATURE: ${anchor.signature}`);
 
   /*
-   * Retrieve the newly created transaction
-   * from Solana and verify the same hash.
+   * TEST 3
+   * Independently verify the ORIGINAL provenance record.
+   *
+   * The verifier receives the record itself.
+   * It recomputes the SHA-256 fingerprint internally.
    */
+
+  console.log("\n======================================");
+  console.log("TEST 3 — ORIGINAL PROVENANCE RECORD");
+  console.log("======================================");
 
   const verification =
     await verifyProvenanceOnChain(
       anchor.signature,
-      proof.provenanceHash
+      proof.record
     );
+
+  if (!verification.verified) {
+    throw new Error(
+      "Original provenance record failed verification."
+    );
+  }
+
+  console.log("\nORIGINAL RECORD: VERIFIED");
+
+  /*
+   * TEST 4
+   * Deliberately tamper with the provenance record.
+   *
+   * Only the owner field is changed.
+   * Everything else remains identical.
+   */
+
+  console.log("\n======================================");
+  console.log("TEST 4 — TAMPER DETECTION");
+  console.log("======================================");
+
+  const tamperedRecord = {
+    ...proof.record,
+    owner: "Tampered Owner",
+  };
+
+  console.log(`ORIGINAL OWNER: ${proof.record.owner}`);
+  console.log(`TAMPERED OWNER: ${tamperedRecord.owner}`);
+
+  const tamperedVerification =
+    await verifyProvenanceOnChain(
+      anchor.signature,
+      tamperedRecord
+    );
+
+  console.log("\n======================================");
+  console.log("TAMPER TEST RESULT");
+  console.log("======================================");
+
+  console.log(
+    `ON-CHAIN VERIFY: ${
+      tamperedVerification.verified
+        ? "MATCH"
+        : "MISMATCH"
+    }`
+  );
+
+  if (tamperedVerification.verified) {
+    throw new Error(
+      "Tampered provenance record unexpectedly verified."
+    );
+  }
+
+  console.log("TAMPER DETECTED: TRUE");
+
+  /*
+   * Final pipeline summary.
+   */
 
   console.log("\n======================================");
   console.log("END-TO-END RESULT");
@@ -131,11 +195,9 @@ async function runDemo() {
   console.log(
     `TRANSACTION: ${anchor.signature}`
   );
-  console.log(
-    `ON-CHAIN VERIFY: ${
-      verification.verified ? "MATCH" : "FAILED"
-    }`
-  );
+  console.log("ORIGINAL RECORD VERIFY: MATCH");
+  console.log("TAMPERED RECORD VERIFY: MISMATCH");
+  console.log("TAMPER DETECTED: TRUE");
 
   console.log("\nSTATUS: VERIFIED");
 
