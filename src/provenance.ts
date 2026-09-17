@@ -9,6 +9,10 @@ export interface ProvenanceRecord {
   policyId: string;
   action: ProvenanceAction;
   owner: string;
+
+  // SHA-256 fingerprint of the source media content.
+  sourceContentHash: string;
+
   createdAt: string;
 }
 
@@ -18,12 +22,28 @@ export interface ProvenanceProof {
   provenanceHash: string;
 }
 
+/*
+ * Create a SHA-256 fingerprint from media content.
+ *
+ * For the current prototype this accepts a Buffer,
+ * allowing the same function to hash real file bytes
+ * when we connect an actual media file.
+ */
+export function hashMediaContent(
+  content: Buffer
+): string {
+  return createHash("sha256")
+    .update(content)
+    .digest("hex");
+}
+
 export function createProvenanceRecord(
   sourceAssetId: string,
   derivedAssetId: string,
   policyId: string,
   action: ProvenanceAction,
-  owner: string
+  owner: string,
+  sourceContentHash: string
 ): ProvenanceRecord {
   return {
     provenanceId: `prov-${sourceAssetId}-${derivedAssetId}`,
@@ -32,6 +52,7 @@ export function createProvenanceRecord(
     policyId,
     action,
     owner,
+    sourceContentHash,
     createdAt: new Date().toISOString(),
   };
 }
@@ -46,6 +67,7 @@ export function hashProvenanceRecord(
     policyId: record.policyId,
     action: record.action,
     owner: record.owner,
+    sourceContentHash: record.sourceContentHash,
     createdAt: record.createdAt,
   });
 

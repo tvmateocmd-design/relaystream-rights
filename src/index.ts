@@ -1,6 +1,7 @@
 import {
   createProvenanceRecord,
   createProvenanceProof,
+  hashMediaContent,
   type ProvenanceAction,
 } from "./provenance";
 
@@ -109,17 +110,39 @@ export function executeAuthorizedTransformation(
     return null;
   }
 
+  /*
+   * Prototype media content.
+   *
+   * This represents the bytes of the source media asset.
+   * The same hashing function can later receive bytes
+   * read directly from a real media file.
+   */
+  const sourceMediaContent = Buffer.from(
+    "RelayStream Demo Media Content v1",
+    "utf8"
+  );
+
+  const sourceContentHash =
+    hashMediaContent(sourceMediaContent);
+
+  console.log("STATUS: AUTHORIZED");
+  console.log(`Derived Asset: ${derivedAssetId}`);
+
+  console.log("\nSOURCE MEDIA FINGERPRINT");
+  console.log("==============================");
+  console.log("HASH ALGORITHM: sha256");
+  console.log(`CONTENT SHA-256: ${sourceContentHash}`);
+
   const provenance = createProvenanceRecord(
     asset.assetId,
     derivedAssetId,
     asset.policy.policyId,
     action,
-    asset.owner
+    asset.owner,
+    sourceContentHash
   );
 
-  console.log("STATUS: AUTHORIZED");
-  console.log(`Derived Asset: ${derivedAssetId}`);
-  console.log("PROVENANCE CREATED:");
+  console.log("\nPROVENANCE CREATED:");
   console.log(provenance);
 
   const proof = createProvenanceProof(provenance);
@@ -131,4 +154,3 @@ export function executeAuthorizedTransformation(
 
   return proof;
 }
-
