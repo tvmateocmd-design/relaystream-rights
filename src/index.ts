@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   createProvenanceRecord,
   createProvenanceProof,
@@ -111,16 +114,19 @@ export function executeAuthorizedTransformation(
   }
 
   /*
-   * Prototype media content.
+   * Read the actual source media file from disk.
    *
-   * This represents the bytes of the source media asset.
-   * The same hashing function can later receive bytes
-   * read directly from a real media file.
+   * The SHA-256 fingerprint is calculated from
+   * the real binary bytes of the MP4.
    */
-  const sourceMediaContent = Buffer.from(
-    "RelayStream Demo Media Content v1",
-    "utf8"
+  const sourceMediaPath = path.join(
+    process.cwd(),
+    "test-media",
+    "relaystream-demo.mp4"
   );
+
+  const sourceMediaContent =
+    fs.readFileSync(sourceMediaPath);
 
   const sourceContentHash =
     hashMediaContent(sourceMediaContent);
@@ -128,11 +134,24 @@ export function executeAuthorizedTransformation(
   console.log("STATUS: AUTHORIZED");
   console.log(`Derived Asset: ${derivedAssetId}`);
 
+  console.log("\nSOURCE MEDIA FILE");
+  console.log("==============================");
+  console.log(`FILE: ${sourceMediaPath}`);
+  console.log(
+    `SIZE: ${sourceMediaContent.length} bytes`
+  );
+
   console.log("\nSOURCE MEDIA FINGERPRINT");
   console.log("==============================");
   console.log("HASH ALGORITHM: sha256");
-  console.log(`CONTENT SHA-256: ${sourceContentHash}`);
+  console.log(
+    `CONTENT SHA-256: ${sourceContentHash}`
+  );
 
+  /*
+   * Bind the source media fingerprint
+   * into the provenance record.
+   */
   const provenance = createProvenanceRecord(
     asset.assetId,
     derivedAssetId,
@@ -145,12 +164,17 @@ export function executeAuthorizedTransformation(
   console.log("\nPROVENANCE CREATED:");
   console.log(provenance);
 
-  const proof = createProvenanceProof(provenance);
+  const proof =
+    createProvenanceProof(provenance);
 
   console.log("\nPROVENANCE PROOF");
   console.log("==============================");
-  console.log(`HASH ALGORITHM: ${proof.hashAlgorithm}`);
-  console.log(`SHA-256: ${proof.provenanceHash}`);
+  console.log(
+    `HASH ALGORITHM: ${proof.hashAlgorithm}`
+  );
+  console.log(
+    `SHA-256: ${proof.provenanceHash}`
+  );
 
   return proof;
 }
