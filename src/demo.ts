@@ -2,10 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  demoAsset,
   verifyPermission,
   executeAuthorizedTransformation,
 } from "./index";
+
+import {
+  registerMedia,
+  type RightsPolicy,
+} from "./register-media";
 
 import {
   anchorProvenanceProof,
@@ -22,16 +26,47 @@ import {
 async function runDemo() {
   console.log("\n======================================");
   console.log("RELAYSTREAM RIGHTS");
-  console.log("END-TO-END RIGHTS ENFORCEMENT DEMO");
+  console.log("REGISTERED MEDIA RIGHTS PIPELINE");
   console.log("======================================");
 
-  console.log(`ASSET: ${demoAsset.assetId}`);
-  console.log(`OWNER: ${demoAsset.owner}`);
-  console.log(`POLICY: ${demoAsset.policy.policyId}`);
+  /*
+   * Define the machine-readable rights policy.
+   */
+  const policy: RightsPolicy = {
+    policyId: "rsp-policy-001",
+    commercialUse: "deny",
+    aiTraining: "deny",
+    derivatives: "allow",
+    transcoding: "allow",
+    attributionRequired: true,
+    provenanceRequired: true,
+  };
+
+  /*
+   * Register the real source media.
+   *
+   * Registration reads the actual MP4 bytes,
+   * calculates the SHA-256 fingerprint, and
+   * attaches the rights policy to the asset.
+   */
+  const sourceMediaPath = path.join(
+    process.cwd(),
+    "test-media",
+    "relaystream-demo.mp4"
+  );
+
+  const registeredAsset = registerMedia({
+    assetId: "relaystream-demo-001",
+    title: "RelayStream Demo Media",
+    owner: "RelayStream",
+    sourceUri: "relaystream://media/demo-001",
+    sourceFilePath: sourceMediaPath,
+    policy,
+  });
 
   /*
    * TEST 1
-   * Unauthorized AI training.
+   * Unauthorized AI training request.
    */
 
   console.log("\n======================================");
@@ -39,7 +74,7 @@ async function runDemo() {
   console.log("======================================");
 
   const deniedAction = verifyPermission(
-    demoAsset,
+    registeredAsset,
     "aiTraining"
   );
 
@@ -58,7 +93,7 @@ async function runDemo() {
 
   /*
    * TEST 2
-   * Authorized transcoding.
+   * Authorized transcoding request.
    */
 
   console.log("\n======================================");
@@ -66,7 +101,7 @@ async function runDemo() {
   console.log("======================================");
 
   const allowedAction = verifyPermission(
-    demoAsset,
+    registeredAsset,
     "transcoding"
   );
 
@@ -82,12 +117,11 @@ async function runDemo() {
   }
 
   /*
-   * Execute authorized transformation.
-   * Creates provenance record and SHA-256 proof.
+   * Execute the authorized action using the
+   * fingerprint established during registration.
    */
-
   const proof = executeAuthorizedTransformation(
-    demoAsset,
+    registeredAsset,
     "transcoding",
     "relaystream-demo-002"
   );
@@ -99,22 +133,28 @@ async function runDemo() {
   }
 
   console.log("\nPIPELINE: PROVENANCE PROOF READY");
-  console.log(`SHA-256: ${proof.provenanceHash}`);
+  console.log(
+    `SHA-256: ${proof.provenanceHash}`
+  );
 
   /*
-   * Anchor provenance proof to Solana Devnet.
+   * Anchor the provenance proof to Solana Devnet.
    */
-
   const anchor = await anchorProvenanceProof(
     proof.provenanceHash
   );
 
-  console.log("\nPIPELINE: SOLANA ANCHOR CONFIRMED");
-  console.log(`SIGNATURE: ${anchor.signature}`);
+  console.log(
+    "\nPIPELINE: SOLANA ANCHOR CONFIRMED"
+  );
+  console.log(
+    `SIGNATURE: ${anchor.signature}`
+  );
 
   /*
    * TEST 3
-   * Independently verify the original provenance record.
+   * Verify the original registered-media
+   * provenance record against Solana.
    */
 
   console.log("\n======================================");
@@ -133,13 +173,13 @@ async function runDemo() {
     );
   }
 
-  console.log("\nORIGINAL RECORD: VERIFIED");
+  console.log(
+    "\nORIGINAL RECORD: VERIFIED"
+  );
 
   /*
    * TEST 4
-   * Tamper with provenance metadata.
-   *
-   * Only the owner field is changed.
+   * Modify provenance metadata.
    */
 
   console.log("\n======================================");
@@ -151,8 +191,12 @@ async function runDemo() {
     owner: "Tampered Owner",
   };
 
-  console.log(`ORIGINAL OWNER: ${proof.record.owner}`);
-  console.log(`TAMPERED OWNER: ${tamperedRecord.owner}`);
+  console.log(
+    `ORIGINAL OWNER: ${proof.record.owner}`
+  );
+  console.log(
+    `TAMPERED OWNER: ${tamperedRecord.owner}`
+  );
 
   const tamperedVerification =
     await verifyProvenanceOnChain(
@@ -178,39 +222,30 @@ async function runDemo() {
     );
   }
 
-  console.log("METADATA TAMPER DETECTED: TRUE");
+  console.log(
+    "METADATA TAMPER DETECTED: TRUE"
+  );
 
   /*
    * TEST 5
-   * Tamper with the actual source media bytes.
+   * Modify exactly one bit of the registered
+   * source media in memory.
    *
-   * The original MP4 is NEVER modified.
-   * We copy its bytes into memory and change
-   * exactly one byte in the in-memory copy.
+   * The original MP4 on disk is untouched.
    */
 
   console.log("\n======================================");
   console.log("TEST 5 - MEDIA CONTENT TAMPER DETECTION");
   console.log("======================================");
 
-  const sourceMediaPath = path.join(
-    process.cwd(),
-    "test-media",
-    "relaystream-demo.mp4"
-  );
-
   const originalMedia =
-    fs.readFileSync(sourceMediaPath);
+    fs.readFileSync(
+      registeredAsset.sourceFilePath
+    );
 
-  /*
-   * Create an independent in-memory copy.
-   * The file on disk remains untouched.
-   */
-  const alteredMedia = Buffer.from(originalMedia);
+  const alteredMedia =
+    Buffer.from(originalMedia);
 
-  /*
-   * Flip exactly one bit in the final byte.
-   */
   alteredMedia[alteredMedia.length - 1] =
     alteredMedia[alteredMedia.length - 1]! ^ 0x01;
 
@@ -220,21 +255,55 @@ async function runDemo() {
   const alteredMediaHash =
     hashMediaContent(alteredMedia);
 
-  console.log(`MEDIA FILE: ${sourceMediaPath}`);
-  console.log(`MEDIA SIZE: ${originalMedia.length} bytes`);
+  console.log(
+    `MEDIA FILE: ${registeredAsset.sourceFilePath}`
+  );
+  console.log(
+    `MEDIA SIZE: ${originalMedia.length} bytes`
+  );
 
-  console.log("\nORIGINAL MEDIA SHA-256:");
+  console.log("\nREGISTERED MEDIA SHA-256:");
+  console.log(
+    registeredAsset.sourceContentHash
+  );
+
+  console.log("\nRECOMPUTED ORIGINAL SHA-256:");
   console.log(originalMediaHash);
 
   console.log("\nALTERED MEDIA SHA-256:");
   console.log(alteredMediaHash);
 
+  /*
+   * First prove that the file currently on disk
+   * still matches the fingerprint established
+   * during registration.
+   */
+  const registeredMediaMatches =
+    registeredAsset.sourceContentHash ===
+    originalMediaHash;
+
+  console.log(
+    `\nREGISTERED MEDIA MATCH: ${
+      registeredMediaMatches
+        ? "TRUE"
+        : "FALSE"
+    }`
+  );
+
+  if (!registeredMediaMatches) {
+    throw new Error(
+      "Source media no longer matches its registered fingerprint."
+    );
+  }
+
   const mediaHashChanged =
     originalMediaHash !== alteredMediaHash;
 
   console.log(
-    `\nCONTENT HASH CHANGED: ${
-      mediaHashChanged ? "TRUE" : "FALSE"
+    `CONTENT HASH CHANGED: ${
+      mediaHashChanged
+        ? "TRUE"
+        : "FALSE"
     }`
   );
 
@@ -245,11 +314,11 @@ async function runDemo() {
   }
 
   /*
-   * Substitute the altered media fingerprint into
-   * the otherwise identical provenance record.
+   * Substitute the altered content fingerprint
+   * into the otherwise identical provenance record.
    *
-   * The Solana transaction still contains the proof
-   * created for the original media.
+   * The Solana anchor contains the proof created
+   * for the registered original media.
    */
   const mediaTamperedRecord = {
     ...proof.record,
@@ -280,19 +349,29 @@ async function runDemo() {
     );
   }
 
-  console.log("MEDIA TAMPER DETECTED: TRUE");
+  console.log(
+    "MEDIA TAMPER DETECTED: TRUE"
+  );
 
   /*
-   * Final pipeline summary.
+   * Final Day 5 pipeline summary.
    */
 
   console.log("\n======================================");
   console.log("END-TO-END RESULT");
   console.log("======================================");
 
-  console.log("RIGHTS CHECK: ALLOW");
-  console.log("TRANSFORMATION: AUTHORIZED");
-  console.log("REAL MEDIA: SHA-256 BOUND TO PROVENANCE");
+  console.log("MEDIA REGISTRATION: COMPLETE");
+  console.log("RIGHTS POLICY: ATTACHED");
+  console.log(
+    "AI TRAINING REQUEST: DENY / BLOCKED"
+  );
+  console.log(
+    "TRANSCODING REQUEST: ALLOW / AUTHORIZED"
+  );
+  console.log(
+    "REGISTERED MEDIA SHA-256: BOUND TO PROVENANCE"
+  );
   console.log("PROVENANCE: CREATED");
   console.log(
     `PROVENANCE SHA-256: ${proof.provenanceHash}`
@@ -301,11 +380,18 @@ async function runDemo() {
   console.log(
     `TRANSACTION: ${anchor.signature}`
   );
-  console.log("ORIGINAL RECORD VERIFY: MATCH");
-  console.log("METADATA TAMPER VERIFY: MISMATCH");
-  console.log("METADATA TAMPER DETECTED: TRUE");
-  console.log("MEDIA CONTENT VERIFY: MISMATCH");
-  console.log("MEDIA TAMPER DETECTED: TRUE");
+  console.log(
+    "ORIGINAL RECORD VERIFY: MATCH"
+  );
+  console.log(
+    "METADATA TAMPER VERIFY: MISMATCH"
+  );
+  console.log(
+    "MEDIA CONTENT VERIFY: MISMATCH"
+  );
+  console.log(
+    "MEDIA TAMPER DETECTED: TRUE"
+  );
 
   console.log("\nSTATUS: VERIFIED");
 

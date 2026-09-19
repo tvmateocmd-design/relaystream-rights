@@ -1,70 +1,28 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import {
   createProvenanceRecord,
   createProvenanceProof,
-  hashMediaContent,
   type ProvenanceAction,
 } from "./provenance";
 
-type Permission = "allow" | "deny";
-
-type RightsAction =
-  | "commercialUse"
-  | "aiTraining"
-  | "derivatives"
-  | "transcoding";
-
-interface RightsPolicy {
-  policyId: string;
-  commercialUse: Permission;
-  aiTraining: Permission;
-  derivatives: Permission;
-  transcoding: Permission;
-  attributionRequired: boolean;
-  provenanceRequired: boolean;
-}
-
-interface MediaAsset {
-  assetId: string;
-  title: string;
-  owner: string;
-  sourceUri: string;
-  policy: RightsPolicy;
-}
+import type {
+  RegisteredMediaAsset,
+  RightsAction,
+} from "./register-media";
 
 interface VerificationResult {
   assetId: string;
   policyId: string;
   owner: string;
   action: RightsAction;
-  decision: Permission;
+  decision: "allow" | "deny";
   authorized: boolean;
   attributionRequired: boolean;
   provenanceRequired: boolean;
   reason: string;
 }
 
-export const demoAsset: MediaAsset = {
-  assetId: "relaystream-demo-001",
-  title: "RelayStream Demo Media",
-  owner: "RelayStream",
-  sourceUri: "relaystream://media/demo-001",
-
-  policy: {
-    policyId: "rsp-policy-001",
-    commercialUse: "deny",
-    aiTraining: "deny",
-    derivatives: "allow",
-    transcoding: "allow",
-    attributionRequired: true,
-    provenanceRequired: true,
-  },
-};
-
 export function verifyPermission(
-  asset: MediaAsset,
+  asset: RegisteredMediaAsset,
   action: RightsAction
 ): VerificationResult {
   const decision = asset.policy[action];
@@ -85,8 +43,10 @@ export function verifyPermission(
     action,
     decision,
     authorized,
-    attributionRequired: asset.policy.attributionRequired,
-    provenanceRequired: asset.policy.provenanceRequired,
+    attributionRequired:
+      asset.policy.attributionRequired,
+    provenanceRequired:
+      asset.policy.provenanceRequired,
 
     reason: authorized
       ? `${actionLabels[action]} is authorized under policy ${asset.policy.policyId}.`
@@ -95,11 +55,12 @@ export function verifyPermission(
 }
 
 export function executeAuthorizedTransformation(
-  asset: MediaAsset,
+  asset: RegisteredMediaAsset,
   action: ProvenanceAction,
   derivedAssetId: string
 ) {
-  const verification = verifyPermission(asset, action);
+  const verification =
+    verifyPermission(asset, action);
 
   console.log("\n==============================");
   console.log("TRANSFORMATION REQUEST");
@@ -109,57 +70,47 @@ export function executeAuthorizedTransformation(
 
   if (!verification.authorized) {
     console.log("STATUS: BLOCKED");
-    console.log(`REASON: ${verification.reason}`);
+    console.log(
+      `REASON: ${verification.reason}`
+    );
     return null;
   }
 
-  /*
-   * Read the actual source media file from disk.
-   *
-   * The SHA-256 fingerprint is calculated from
-   * the real binary bytes of the MP4.
-   */
-  const sourceMediaPath = path.join(
-    process.cwd(),
-    "test-media",
-    "relaystream-demo.mp4"
-  );
-
-  const sourceMediaContent =
-    fs.readFileSync(sourceMediaPath);
-
-  const sourceContentHash =
-    hashMediaContent(sourceMediaContent);
-
   console.log("STATUS: AUTHORIZED");
-  console.log(`Derived Asset: ${derivedAssetId}`);
-
-  console.log("\nSOURCE MEDIA FILE");
-  console.log("==============================");
-  console.log(`FILE: ${sourceMediaPath}`);
   console.log(
-    `SIZE: ${sourceMediaContent.length} bytes`
-  );
-
-  console.log("\nSOURCE MEDIA FINGERPRINT");
-  console.log("==============================");
-  console.log("HASH ALGORITHM: sha256");
-  console.log(
-    `CONTENT SHA-256: ${sourceContentHash}`
+    `Derived Asset: ${derivedAssetId}`
   );
 
   /*
-   * Bind the source media fingerprint
+   * The media fingerprint was established
+   * during registration.
+   *
+   * The transformation engine does not
+   * independently invent or rediscover
+   * the identity of the source media.
+   */
+  console.log("\nREGISTERED MEDIA FINGERPRINT");
+  console.log("==============================");
+  console.log(
+    `HASH ALGORITHM: ${asset.hashAlgorithm}`
+  );
+  console.log(
+    `CONTENT SHA-256: ${asset.sourceContentHash}`
+  );
+
+  /*
+   * Bind the registered media fingerprint
    * into the provenance record.
    */
-  const provenance = createProvenanceRecord(
-    asset.assetId,
-    derivedAssetId,
-    asset.policy.policyId,
-    action,
-    asset.owner,
-    sourceContentHash
-  );
+  const provenance =
+    createProvenanceRecord(
+      asset.assetId,
+      derivedAssetId,
+      asset.policy.policyId,
+      action,
+      asset.owner,
+      asset.sourceContentHash
+    );
 
   console.log("\nPROVENANCE CREATED:");
   console.log(provenance);
