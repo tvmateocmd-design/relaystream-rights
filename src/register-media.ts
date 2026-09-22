@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 
 import {
   hashMediaContent,
@@ -32,6 +33,7 @@ export interface RegisteredMediaAsset {
   sourceSizeBytes: number;
   hashAlgorithm: "sha256";
   policy: RightsPolicy;
+  policyHash: string;
 }
 
 export interface RegisterMediaInput {
@@ -43,6 +45,26 @@ export interface RegisterMediaInput {
   policy: RightsPolicy;
 }
 
+export function hashRightsPolicy(
+  policy: RightsPolicy
+): string {
+  const canonicalPolicy = JSON.stringify({
+    policyId: policy.policyId,
+    commercialUse: policy.commercialUse,
+    aiTraining: policy.aiTraining,
+    derivatives: policy.derivatives,
+    transcoding: policy.transcoding,
+    attributionRequired:
+      policy.attributionRequired,
+    provenanceRequired:
+      policy.provenanceRequired,
+  });
+
+  return createHash("sha256")
+    .update(canonicalPolicy)
+    .digest("hex");
+}
+
 export function registerMedia(
   input: RegisterMediaInput
 ): RegisteredMediaAsset {
@@ -51,6 +73,9 @@ export function registerMedia(
 
   const sourceContentHash =
     hashMediaContent(mediaContent);
+
+  const policyHash =
+    hashRightsPolicy(input.policy);
 
   const asset: RegisteredMediaAsset = {
     assetId: input.assetId,
@@ -62,6 +87,7 @@ export function registerMedia(
     sourceSizeBytes: mediaContent.length,
     hashAlgorithm: "sha256",
     policy: input.policy,
+    policyHash,
   };
 
   console.log("\n======================================");
@@ -82,6 +108,9 @@ export function registerMedia(
 
   console.log("\nRIGHTS POLICY ATTACHED");
   console.log(`POLICY: ${asset.policy.policyId}`);
+  console.log(
+    `POLICY SHA-256: ${asset.policyHash}`
+  );
   console.log(
     `AI TRAINING: ${asset.policy.aiTraining.toUpperCase()}`
   );

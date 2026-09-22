@@ -1,12 +1,22 @@
 import { createHash } from "node:crypto";
 
-export type ProvenanceAction = "derivatives" | "transcoding";
+export type ProvenanceAction =
+  | "derivatives"
+  | "transcoding";
 
 export interface ProvenanceRecord {
   provenanceId: string;
   sourceAssetId: string;
   derivedAssetId: string;
+
+  // Identifies the rights policy used to authorize
+  // this transformation.
   policyId: string;
+
+  // SHA-256 fingerprint of the exact rights policy
+  // used when this provenance record was created.
+  policyHash: string;
+
   action: ProvenanceAction;
   owner: string;
 
@@ -24,10 +34,6 @@ export interface ProvenanceProof {
 
 /*
  * Create a SHA-256 fingerprint from media content.
- *
- * For the current prototype this accepts a Buffer,
- * allowing the same function to hash real file bytes
- * when we connect an actual media file.
  */
 export function hashMediaContent(
   content: Buffer
@@ -41,15 +47,18 @@ export function createProvenanceRecord(
   sourceAssetId: string,
   derivedAssetId: string,
   policyId: string,
+  policyHash: string,
   action: ProvenanceAction,
   owner: string,
   sourceContentHash: string
 ): ProvenanceRecord {
   return {
-    provenanceId: `prov-${sourceAssetId}-${derivedAssetId}`,
+    provenanceId:
+      `prov-${sourceAssetId}-${derivedAssetId}`,
     sourceAssetId,
     derivedAssetId,
     policyId,
+    policyHash,
     action,
     owner,
     sourceContentHash,
@@ -65,6 +74,7 @@ export function hashProvenanceRecord(
     sourceAssetId: record.sourceAssetId,
     derivedAssetId: record.derivedAssetId,
     policyId: record.policyId,
+    policyHash: record.policyHash,
     action: record.action,
     owner: record.owner,
     sourceContentHash: record.sourceContentHash,
@@ -82,6 +92,7 @@ export function createProvenanceProof(
   return {
     record,
     hashAlgorithm: "sha256",
-    provenanceHash: hashProvenanceRecord(record),
+    provenanceHash:
+      hashProvenanceRecord(record),
   };
 }

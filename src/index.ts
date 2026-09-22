@@ -103,14 +103,15 @@ export function executeAuthorizedTransformation(
    * into the provenance record.
    */
   const provenance =
-    createProvenanceRecord(
-      asset.assetId,
-      derivedAssetId,
-      asset.policy.policyId,
-      action,
-      asset.owner,
-      asset.sourceContentHash
-    );
+  createProvenanceRecord(
+    asset.assetId,
+    derivedAssetId,
+    asset.policy.policyId,
+    asset.policyHash,
+    action,
+    asset.owner,
+    asset.sourceContentHash
+  );
 
   console.log("\nPROVENANCE CREATED:");
   console.log(provenance);

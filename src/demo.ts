@@ -8,6 +8,7 @@ import {
 
 import {
   registerMedia,
+  hashRightsPolicy,
   type RightsPolicy,
 } from "./register-media";
 
@@ -46,8 +47,9 @@ async function runDemo() {
    * Register the real source media.
    *
    * Registration reads the actual MP4 bytes,
-   * calculates the SHA-256 fingerprint, and
-   * attaches the rights policy to the asset.
+   * calculates the SHA-256 media fingerprint,
+   * calculates the SHA-256 policy fingerprint,
+   * and attaches the rights policy to the asset.
    */
   const sourceMediaPath = path.join(
     process.cwd(),
@@ -118,7 +120,8 @@ async function runDemo() {
 
   /*
    * Execute the authorized action using the
-   * fingerprint established during registration.
+   * media and policy fingerprints established
+   * during registration.
    */
   const proof = executeAuthorizedTransformation(
     registeredAsset,
@@ -274,9 +277,9 @@ async function runDemo() {
   console.log(alteredMediaHash);
 
   /*
-   * First prove that the file currently on disk
-   * still matches the fingerprint established
-   * during registration.
+   * Prove that the file currently on disk still
+   * matches the fingerprint established during
+   * registration.
    */
   const registeredMediaMatches =
     registeredAsset.sourceContentHash ===
@@ -354,7 +357,109 @@ async function runDemo() {
   );
 
   /*
-   * Final Day 5 pipeline summary.
+   * TEST 6
+   * Modify the actual machine-readable rights
+   * policy while retaining the same policy ID.
+   *
+   * Because the exact policy is fingerprinted and
+   * its hash is bound into provenance, changing a
+   * policy rule must invalidate the anchored proof.
+   */
+
+  console.log("\n======================================");
+  console.log("TEST 6 - RIGHTS POLICY TAMPER DETECTION");
+  console.log("======================================");
+
+  const tamperedPolicy: RightsPolicy = {
+    ...registeredAsset.policy,
+    aiTraining: "allow",
+  };
+
+  const originalPolicyHash =
+    registeredAsset.policyHash;
+
+  const tamperedPolicyHash =
+    hashRightsPolicy(tamperedPolicy);
+
+  console.log(
+    `POLICY ID: ${registeredAsset.policy.policyId}`
+  );
+
+  console.log("\nORIGINAL POLICY:");
+  console.log(
+    `AI TRAINING: ${registeredAsset.policy.aiTraining.toUpperCase()}`
+  );
+
+  console.log("\nTAMPERED POLICY:");
+  console.log(
+    `AI TRAINING: ${tamperedPolicy.aiTraining.toUpperCase()}`
+  );
+
+  console.log("\nORIGINAL POLICY SHA-256:");
+  console.log(originalPolicyHash);
+
+  console.log("\nTAMPERED POLICY SHA-256:");
+  console.log(tamperedPolicyHash);
+
+  const policyHashChanged =
+    originalPolicyHash !== tamperedPolicyHash;
+
+  console.log(
+    `\nPOLICY HASH CHANGED: ${
+      policyHashChanged
+        ? "TRUE"
+        : "FALSE"
+    }`
+  );
+
+  if (!policyHashChanged) {
+    throw new Error(
+      "Policy modification did not change the policy hash."
+    );
+  }
+
+  /*
+   * Substitute the altered policy fingerprint into
+   * the otherwise identical provenance record.
+   *
+   * The Solana anchor contains the proof generated
+   * from the original registered policy.
+   */
+  const policyTamperedRecord = {
+    ...proof.record,
+    policyHash: tamperedPolicyHash,
+  };
+
+  const policyTamperedVerification =
+    await verifyProvenanceOnChain(
+      anchor.signature,
+      policyTamperedRecord
+    );
+
+  console.log("\n======================================");
+  console.log("POLICY TAMPER TEST RESULT");
+  console.log("======================================");
+
+  console.log(
+    `ON-CHAIN VERIFY: ${
+      policyTamperedVerification.verified
+        ? "MATCH"
+        : "MISMATCH"
+    }`
+  );
+
+  if (policyTamperedVerification.verified) {
+    throw new Error(
+      "Altered rights policy unexpectedly matched the original provenance proof."
+    );
+  }
+
+  console.log(
+    "POLICY TAMPER DETECTED: TRUE"
+  );
+
+  /*
+   * Current end-to-end pipeline summary.
    */
 
   console.log("\n======================================");
@@ -363,6 +468,9 @@ async function runDemo() {
 
   console.log("MEDIA REGISTRATION: COMPLETE");
   console.log("RIGHTS POLICY: ATTACHED");
+  console.log(
+    "RIGHTS POLICY SHA-256: BOUND TO PROVENANCE"
+  );
   console.log(
     "AI TRAINING REQUEST: DENY / BLOCKED"
   );
@@ -391,6 +499,12 @@ async function runDemo() {
   );
   console.log(
     "MEDIA TAMPER DETECTED: TRUE"
+  );
+  console.log(
+    "POLICY TAMPER VERIFY: MISMATCH"
+  );
+  console.log(
+    "POLICY TAMPER DETECTED: TRUE"
   );
 
   console.log("\nSTATUS: VERIFIED");
