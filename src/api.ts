@@ -20,6 +20,10 @@ import type {
   ProvenanceAction,
 } from "./provenance";
 
+import {
+  anchorProvenanceProof,
+} from "./anchor-provenance";
+
 const PORT = 3000;
 
 const assets = new Map<
@@ -263,14 +267,25 @@ const server = http.createServer(
       /*
        * AUTHORIZED ACTION EXECUTION
        *
-       * This endpoint represents an application
-       * requesting an allowed media transformation.
+       * Pipeline:
        *
-       * The current prototype does not perform the
-       * actual media transcode or derivative creation.
-       * It authorizes the requested operation and
-       * creates the cryptographic provenance proof
-       * for that authorized action.
+       * rights verification
+       *        ->
+       * authorized transformation request
+       *        ->
+       * provenance record
+       *        ->
+       * SHA-256 provenance proof
+       *        ->
+       * Solana Devnet anchor
+       *        ->
+       * transaction signature returned to caller
+       *
+       * IMPORTANT:
+       * The current prototype authorizes the requested
+       * transformation and records its provenance.
+       * It does not perform the actual media transcode
+       * or derivative-media generation.
        */
       if (
         method === "POST" &&
@@ -310,8 +325,9 @@ const server = http.createServer(
         }
 
         /*
-         * Verify permission before creating
-         * any provenance record.
+         * STEP 1:
+         * Verify that the requested action
+         * is authorized by the media policy.
          */
         const rightsResult =
           verifyPermission(
@@ -332,6 +348,7 @@ const server = http.createServer(
               rightsResult.decision,
             authorized: false,
             provenanceCreated: false,
+            solanaAnchored: false,
             reason:
               rightsResult.reason,
           });
@@ -339,6 +356,11 @@ const server = http.createServer(
           return;
         }
 
+        /*
+         * STEP 2:
+         * Create provenance for the
+         * authorized transformation request.
+         */
         const proof =
           executeAuthorizedTransformation(
             asset,
@@ -353,6 +375,7 @@ const server = http.createServer(
             action: body.action,
             authorized: false,
             provenanceCreated: false,
+            solanaAnchored: false,
             error:
               "Authorized transformation did not create provenance.",
           });
@@ -360,6 +383,22 @@ const server = http.createServer(
           return;
         }
 
+        /*
+         * STEP 3:
+         * Anchor the exact provenance SHA-256
+         * proof to Solana Devnet.
+         */
+        const anchor =
+          await anchorProvenanceProof(
+            proof.provenanceHash
+          );
+
+        /*
+         * STEP 4:
+         * Return the complete authorization,
+         * provenance, and Solana proof to the
+         * calling application.
+         */
         sendJson(response, 200, {
           status: "authorized",
           assetId: asset.assetId,
@@ -372,7 +411,9 @@ const server = http.createServer(
           action: body.action,
           decision: "allow",
           authorized: true,
+
           provenanceCreated: true,
+
           provenance: {
             provenanceId:
               proof.record.provenanceId,
@@ -393,11 +434,26 @@ const server = http.createServer(
             createdAt:
               proof.record.createdAt,
           },
+
           proof: {
             hashAlgorithm:
               proof.hashAlgorithm,
             provenanceHash:
               proof.provenanceHash,
+          },
+
+          solana: {
+            anchored: true,
+            network: "devnet",
+            commitment: "confirmed",
+            signature:
+              anchor.signature,
+            signer:
+              anchor.signer,
+            memo:
+              anchor.memo,
+            provenanceHash:
+              anchor.provenanceHash,
           },
         });
 
