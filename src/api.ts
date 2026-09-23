@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   verifyPermission,
+  executeAuthorizedTransformation,
 } from "./index";
 
 import {
@@ -14,6 +15,10 @@ import {
   type RightsAction,
   type RightsPolicy,
 } from "./register-media";
+
+import type {
+  ProvenanceAction,
+} from "./provenance";
 
 const PORT = 3000;
 
@@ -34,6 +39,12 @@ interface RegisterRequest {
 interface VerifyRightsRequest {
   assetId: string;
   action: RightsAction;
+}
+
+interface ExecuteActionRequest {
+  assetId: string;
+  action: ProvenanceAction;
+  derivedAssetId: string;
 }
 
 function sendJson(
@@ -80,6 +91,15 @@ function isRightsAction(
   return (
     value === "commercialUse" ||
     value === "aiTraining" ||
+    value === "derivatives" ||
+    value === "transcoding"
+  );
+}
+
+function isProvenanceAction(
+  value: unknown
+): value is ProvenanceAction {
+  return (
     value === "derivatives" ||
     value === "transcoding"
   );
@@ -240,6 +260,153 @@ const server = http.createServer(
         return;
       }
 
+      /*
+       * AUTHORIZED ACTION EXECUTION
+       *
+       * This endpoint represents an application
+       * requesting an allowed media transformation.
+       *
+       * The current prototype does not perform the
+       * actual media transcode or derivative creation.
+       * It authorizes the requested operation and
+       * creates the cryptographic provenance proof
+       * for that authorized action.
+       */
+      if (
+        method === "POST" &&
+        url.pathname === "/actions/execute"
+      ) {
+        const body =
+          await readJsonBody(request) as
+            Partial<ExecuteActionRequest>;
+
+        if (
+          !body.assetId ||
+          !body.derivedAssetId ||
+          !isProvenanceAction(body.action)
+        ) {
+          sendJson(response, 400, {
+            error:
+              "assetId, derivedAssetId, and a valid provenance action are required.",
+            validActions: [
+              "derivatives",
+              "transcoding",
+            ],
+          });
+
+          return;
+        }
+
+        const asset =
+          assets.get(body.assetId);
+
+        if (!asset) {
+          sendJson(response, 404, {
+            error: "Asset not registered.",
+            assetId: body.assetId,
+          });
+
+          return;
+        }
+
+        /*
+         * Verify permission before creating
+         * any provenance record.
+         */
+        const rightsResult =
+          verifyPermission(
+            asset,
+            body.action
+          );
+
+        if (!rightsResult.authorized) {
+          sendJson(response, 403, {
+            status: "blocked",
+            assetId: asset.assetId,
+            policyId:
+              asset.policy.policyId,
+            policyHash:
+              asset.policyHash,
+            action: body.action,
+            decision:
+              rightsResult.decision,
+            authorized: false,
+            provenanceCreated: false,
+            reason:
+              rightsResult.reason,
+          });
+
+          return;
+        }
+
+        const proof =
+          executeAuthorizedTransformation(
+            asset,
+            body.action,
+            body.derivedAssetId
+          );
+
+        if (!proof) {
+          sendJson(response, 403, {
+            status: "blocked",
+            assetId: asset.assetId,
+            action: body.action,
+            authorized: false,
+            provenanceCreated: false,
+            error:
+              "Authorized transformation did not create provenance.",
+          });
+
+          return;
+        }
+
+        sendJson(response, 200, {
+          status: "authorized",
+          assetId: asset.assetId,
+          derivedAssetId:
+            body.derivedAssetId,
+          policyId:
+            asset.policy.policyId,
+          policyHash:
+            asset.policyHash,
+          action: body.action,
+          decision: "allow",
+          authorized: true,
+          provenanceCreated: true,
+          provenance: {
+            provenanceId:
+              proof.record.provenanceId,
+            sourceAssetId:
+              proof.record.sourceAssetId,
+            derivedAssetId:
+              proof.record.derivedAssetId,
+            policyId:
+              proof.record.policyId,
+            policyHash:
+              proof.record.policyHash,
+            action:
+              proof.record.action,
+            owner:
+              proof.record.owner,
+            sourceContentHash:
+              proof.record.sourceContentHash,
+            createdAt:
+              proof.record.createdAt,
+          },
+          proof: {
+            hashAlgorithm:
+              proof.hashAlgorithm,
+            provenanceHash:
+              proof.provenanceHash,
+          },
+        });
+
+        return;
+      }
+
+      /*
+       * ROUTE NOT FOUND
+       */
       sendJson(response, 404, {
         error: "Route not found.",
       });
@@ -267,5 +434,6 @@ server.listen(PORT, () => {
   console.log("GET  /health");
   console.log("POST /media/register");
   console.log("POST /rights/verify");
+  console.log("POST /actions/execute");
   console.log("======================================");
 });
