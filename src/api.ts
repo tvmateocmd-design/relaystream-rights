@@ -71,34 +71,28 @@ interface ExecuteActionRequest {
  * these identifiers in the main demo.
  */
 const DEMO_ROYALTY_RULE: RoyaltyRule = {
-  royaltyRuleId:
-    "relaystream-demo-royalty-rule-001",
-
-  assetId:
-    "relaystream-demo-001",
-
-  currency:
-    "USD-DEMO",
-
+  royaltyRuleId: "relaystream-demo-royalty-rule-001",
+  assetId: "relaystream-demo-001",
+  currency: "USD-DEMO",
   recipients: [
     {
       role: "creator",
-      wallet: "recipient:creator",
+      wallet: "3Ywmj3aKMe2Ti5wSz4x2mfZ2GJJdC8HpdXnbunPB4bQA",
       percentage: 60,
     },
     {
       role: "rightsholder",
-      wallet: "recipient:rightsholder",
+      wallet: "84ybGHDF7zPAr5aa8Hx3xS4wRZ6u2S5LPvtUdPuPBKfH",
       percentage: 20,
     },
     {
       role: "distributor",
-      wallet: "recipient:distributor",
+      wallet: "GuYsfNxu29BZBa32FSJf2URodPK617uwUX63mUudPPzn",
       percentage: 10,
     },
     {
       role: "infrastructure",
-      wallet: "recipient:infrastructure",
+      wallet: "nQGn7dXP1hN7XzJ7zP3UtML3HfUuGCtNipgmtL4j8ZZ",
       percentage: 10,
     },
   ],
