@@ -628,6 +628,15 @@ const server = http.createServer(
           policyHash:
             asset.policyHash,
 
+          policyIntegrityValid:
+            rightsResult.policyIntegrityValid,
+
+          registeredPolicyHash:
+            rightsResult.registeredPolicyHash,
+
+          currentPolicyHash:
+            rightsResult.currentPolicyHash,
+
           action:
             body.action,
 
