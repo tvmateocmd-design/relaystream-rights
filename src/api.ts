@@ -327,6 +327,15 @@ const server = http.createServer(
           policyHash:
             asset.policyHash,
 
+          policyIntegrityValid:
+            result.policyIntegrityValid,
+
+          registeredPolicyHash:
+            result.registeredPolicyHash,
+
+          currentPolicyHash:
+            result.currentPolicyHash,
+
           action:
             result.action,
 
