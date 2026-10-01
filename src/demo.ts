@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import {
@@ -12,17 +11,10 @@ import {
   type RightsPolicy,
 } from "./register-media";
 
-import {
-  anchorProvenanceProof,
-} from "./anchor-provenance";
-
-import {
-  verifyProvenanceOnChain,
-} from "./verify-provenance";
-
-import {
-  hashMediaContent,
-} from "./provenance";
+import fs from "node:fs";
+import { anchorProvenanceProof } from "./anchor-provenance";
+import { verifyProvenanceOnChain } from "./verify-provenance";
+import { hashMediaContent, type ProvenanceProof } from "./provenance";
 
 async function runDemo() {
   console.log("\n======================================");
@@ -123,395 +115,401 @@ async function runDemo() {
    * media and policy fingerprints established
    * during registration.
    */
-  const proof = executeAuthorizedTransformation(
+  const execution = await executeAuthorizedTransformation(
     registeredAsset,
     "transcoding",
     "relaystream-demo-002"
   );
-
-  if (!proof) {
+  if (execution.status !== "processed") {
     throw new Error(
-      "Authorized transformation did not create provenance."
+      execution.status === "blocked" ? execution.reason : execution.error.message
     );
   }
 
-  console.log("\nPIPELINE: PROVENANCE PROOF READY");
-  console.log(
-    `SHA-256: ${proof.provenanceHash}`
-  );
+  console.log("\nCHECKPOINT 2: AUTHORIZED MEDIA PROCESSING COMPLETE");
+  console.log(JSON.stringify(execution, null, 2));
+  // Provenance v2, anchoring and royalties are reserved for later checkpoints.
 
-  /*
-   * Anchor the provenance proof to Solana Devnet.
-   */
-  const anchor = await anchorProvenanceProof(
-    proof.provenanceHash
-  );
-
-  console.log(
-    "\nPIPELINE: SOLANA ANCHOR CONFIRMED"
-  );
-  console.log(
-    `SIGNATURE: ${anchor.signature}`
-  );
-
-  /*
-   * TEST 3
-   * Verify the original registered-media
-   * provenance record against Solana.
-   */
-
-  console.log("\n======================================");
-  console.log("TEST 3 - ORIGINAL PROVENANCE RECORD");
-  console.log("======================================");
-
-  const verification =
-    await verifyProvenanceOnChain(
-      anchor.signature,
-      proof.record
+  // Preserve the original proof checks; no proof is passed or created in Checkpoint 2.
+  async function runLegacyProofChecks(proof: ProvenanceProof) {
+    console.log("\nPIPELINE: PROVENANCE PROOF READY");
+    console.log(
+      `SHA-256: ${proof.provenanceHash}`
     );
 
-  if (!verification.verified) {
-    throw new Error(
-      "Original provenance record failed verification."
+    /*
+     * Anchor the provenance proof to Solana Devnet.
+     */
+    const anchor = await anchorProvenanceProof(
+      proof.provenanceHash
     );
+
+    console.log(
+      "\nPIPELINE: SOLANA ANCHOR CONFIRMED"
+    );
+    console.log(
+      `SIGNATURE: ${anchor.signature}`
+    );
+
+    /*
+     * TEST 3
+     * Verify the original registered-media
+     * provenance record against Solana.
+     */
+
+    console.log("\n======================================");
+    console.log("TEST 3 - ORIGINAL PROVENANCE RECORD");
+    console.log("======================================");
+
+    const verification =
+      await verifyProvenanceOnChain(
+        anchor.signature,
+        proof.record
+      );
+
+    if (!verification.verified) {
+      throw new Error(
+        "Original provenance record failed verification."
+      );
+    }
+
+    console.log(
+      "\nORIGINAL RECORD: VERIFIED"
+    );
+
+    /*
+     * TEST 4
+     * Modify provenance metadata.
+     */
+
+    console.log("\n======================================");
+    console.log("TEST 4 - METADATA TAMPER DETECTION");
+    console.log("======================================");
+
+    const tamperedRecord = {
+      ...proof.record,
+      owner: "Tampered Owner",
+    };
+
+    console.log(
+      `ORIGINAL OWNER: ${proof.record.owner}`
+    );
+    console.log(
+      `TAMPERED OWNER: ${tamperedRecord.owner}`
+    );
+
+    const tamperedVerification =
+      await verifyProvenanceOnChain(
+        anchor.signature,
+        tamperedRecord
+      );
+
+    console.log("\n======================================");
+    console.log("METADATA TAMPER TEST RESULT");
+    console.log("======================================");
+
+    console.log(
+      `ON-CHAIN VERIFY: ${
+        tamperedVerification.verified
+          ? "MATCH"
+          : "MISMATCH"
+      }`
+    );
+
+    if (tamperedVerification.verified) {
+      throw new Error(
+        "Tampered provenance record unexpectedly verified."
+      );
+    }
+
+    console.log(
+      "METADATA TAMPER DETECTED: TRUE"
+    );
+
+    /*
+     * TEST 5
+     * Modify exactly one bit of the registered
+     * source media in memory.
+     *
+     * The original MP4 on disk is untouched.
+     */
+
+    console.log("\n======================================");
+    console.log("TEST 5 - MEDIA CONTENT TAMPER DETECTION");
+    console.log("======================================");
+
+    const originalMedia =
+      fs.readFileSync(
+        registeredAsset.sourceFilePath
+      );
+
+    const alteredMedia =
+      Buffer.from(originalMedia);
+
+    alteredMedia[alteredMedia.length - 1] =
+      alteredMedia[alteredMedia.length - 1]! ^ 0x01;
+
+    const originalMediaHash =
+      hashMediaContent(originalMedia);
+
+    const alteredMediaHash =
+      hashMediaContent(alteredMedia);
+
+    console.log(
+      `MEDIA FILE: ${registeredAsset.sourceFilePath}`
+    );
+    console.log(
+      `MEDIA SIZE: ${originalMedia.length} bytes`
+    );
+
+    console.log("\nREGISTERED MEDIA SHA-256:");
+    console.log(
+      registeredAsset.sourceContentHash
+    );
+
+    console.log("\nRECOMPUTED ORIGINAL SHA-256:");
+    console.log(originalMediaHash);
+
+    console.log("\nALTERED MEDIA SHA-256:");
+    console.log(alteredMediaHash);
+
+    /*
+     * Prove that the file currently on disk still
+     * matches the fingerprint established during
+     * registration.
+     */
+    const registeredMediaMatches =
+      registeredAsset.sourceContentHash ===
+      originalMediaHash;
+
+    console.log(
+      `\nREGISTERED MEDIA MATCH: ${
+        registeredMediaMatches
+          ? "TRUE"
+          : "FALSE"
+      }`
+    );
+
+    if (!registeredMediaMatches) {
+      throw new Error(
+        "Source media no longer matches its registered fingerprint."
+      );
+    }
+
+    const mediaHashChanged =
+      originalMediaHash !== alteredMediaHash;
+
+    console.log(
+      `CONTENT HASH CHANGED: ${
+        mediaHashChanged
+          ? "TRUE"
+          : "FALSE"
+      }`
+    );
+
+    if (!mediaHashChanged) {
+      throw new Error(
+        "Media alteration did not change the content hash."
+      );
+    }
+
+    /*
+     * Substitute the altered content fingerprint
+     * into the otherwise identical provenance record.
+     *
+     * The Solana anchor contains the proof created
+     * for the registered original media.
+     */
+    const mediaTamperedRecord = {
+      ...proof.record,
+      sourceContentHash: alteredMediaHash,
+    };
+
+    const mediaTamperedVerification =
+      await verifyProvenanceOnChain(
+        anchor.signature,
+        mediaTamperedRecord
+      );
+
+    console.log("\n======================================");
+    console.log("MEDIA TAMPER TEST RESULT");
+    console.log("======================================");
+
+    console.log(
+      `ON-CHAIN VERIFY: ${
+        mediaTamperedVerification.verified
+          ? "MATCH"
+          : "MISMATCH"
+      }`
+    );
+
+    if (mediaTamperedVerification.verified) {
+      throw new Error(
+        "Altered media unexpectedly matched the original provenance proof."
+      );
+    }
+
+    console.log(
+      "MEDIA TAMPER DETECTED: TRUE"
+    );
+
+    /*
+     * TEST 6
+     * Modify the actual machine-readable rights
+     * policy while retaining the same policy ID.
+     *
+     * Because the exact policy is fingerprinted and
+     * its hash is bound into provenance, changing a
+     * policy rule must invalidate the anchored proof.
+     */
+
+    console.log("\n======================================");
+    console.log("TEST 6 - RIGHTS POLICY TAMPER DETECTION");
+    console.log("======================================");
+
+    const tamperedPolicy: RightsPolicy = {
+      ...registeredAsset.policy,
+      aiTraining: "allow",
+    };
+
+    const originalPolicyHash =
+      registeredAsset.policyHash;
+
+    const tamperedPolicyHash =
+      hashRightsPolicy(tamperedPolicy);
+
+    console.log(
+      `POLICY ID: ${registeredAsset.policy.policyId}`
+    );
+
+    console.log("\nORIGINAL POLICY:");
+    console.log(
+      `AI TRAINING: ${registeredAsset.policy.aiTraining.toUpperCase()}`
+    );
+
+    console.log("\nTAMPERED POLICY:");
+    console.log(
+      `AI TRAINING: ${tamperedPolicy.aiTraining.toUpperCase()}`
+    );
+
+    console.log("\nORIGINAL POLICY SHA-256:");
+    console.log(originalPolicyHash);
+
+    console.log("\nTAMPERED POLICY SHA-256:");
+    console.log(tamperedPolicyHash);
+
+    const policyHashChanged =
+      originalPolicyHash !== tamperedPolicyHash;
+
+    console.log(
+      `\nPOLICY HASH CHANGED: ${
+        policyHashChanged
+          ? "TRUE"
+          : "FALSE"
+      }`
+    );
+
+    if (!policyHashChanged) {
+      throw new Error(
+        "Policy modification did not change the policy hash."
+      );
+    }
+
+    /*
+     * Substitute the altered policy fingerprint into
+     * the otherwise identical provenance record.
+     *
+     * The Solana anchor contains the proof generated
+     * from the original registered policy.
+     */
+    const policyTamperedRecord = {
+      ...proof.record,
+      policyHash: tamperedPolicyHash,
+    };
+
+    const policyTamperedVerification =
+      await verifyProvenanceOnChain(
+        anchor.signature,
+        policyTamperedRecord
+      );
+
+    console.log("\n======================================");
+    console.log("POLICY TAMPER TEST RESULT");
+    console.log("======================================");
+
+    console.log(
+      `ON-CHAIN VERIFY: ${
+        policyTamperedVerification.verified
+          ? "MATCH"
+          : "MISMATCH"
+      }`
+    );
+
+    if (policyTamperedVerification.verified) {
+      throw new Error(
+        "Altered rights policy unexpectedly matched the original provenance proof."
+      );
+    }
+
+    console.log(
+      "POLICY TAMPER DETECTED: TRUE"
+    );
+
+    /*
+     * Current end-to-end pipeline summary.
+     */
+
+    console.log("\n======================================");
+    console.log("END-TO-END RESULT");
+    console.log("======================================");
+
+    console.log("MEDIA REGISTRATION: COMPLETE");
+    console.log("RIGHTS POLICY: ATTACHED");
+    console.log(
+      "RIGHTS POLICY SHA-256: BOUND TO PROVENANCE"
+    );
+    console.log(
+      "AI TRAINING REQUEST: DENY / BLOCKED"
+    );
+    console.log(
+      "TRANSCODING REQUEST: ALLOW / AUTHORIZED"
+    );
+    console.log(
+      "REGISTERED MEDIA SHA-256: BOUND TO PROVENANCE"
+    );
+    console.log("PROVENANCE: CREATED");
+    console.log(
+      `PROVENANCE SHA-256: ${proof.provenanceHash}`
+    );
+    console.log("SOLANA ANCHOR: CONFIRMED");
+    console.log(
+      `TRANSACTION: ${anchor.signature}`
+    );
+    console.log(
+      "ORIGINAL RECORD VERIFY: MATCH"
+    );
+    console.log(
+      "METADATA TAMPER VERIFY: MISMATCH"
+    );
+    console.log(
+      "MEDIA CONTENT VERIFY: MISMATCH"
+    );
+    console.log(
+      "MEDIA TAMPER DETECTED: TRUE"
+    );
+    console.log(
+      "POLICY TAMPER VERIFY: MISMATCH"
+    );
+    console.log(
+      "POLICY TAMPER DETECTED: TRUE"
+    );
+
+    console.log("\nSTATUS: VERIFIED");
+
+    console.log("\n======================================");
+    console.log("RELAYSTREAM RIGHTS PIPELINE COMPLETE");
+    console.log("======================================");
   }
-
-  console.log(
-    "\nORIGINAL RECORD: VERIFIED"
-  );
-
-  /*
-   * TEST 4
-   * Modify provenance metadata.
-   */
-
-  console.log("\n======================================");
-  console.log("TEST 4 - METADATA TAMPER DETECTION");
-  console.log("======================================");
-
-  const tamperedRecord = {
-    ...proof.record,
-    owner: "Tampered Owner",
-  };
-
-  console.log(
-    `ORIGINAL OWNER: ${proof.record.owner}`
-  );
-  console.log(
-    `TAMPERED OWNER: ${tamperedRecord.owner}`
-  );
-
-  const tamperedVerification =
-    await verifyProvenanceOnChain(
-      anchor.signature,
-      tamperedRecord
-    );
-
-  console.log("\n======================================");
-  console.log("METADATA TAMPER TEST RESULT");
-  console.log("======================================");
-
-  console.log(
-    `ON-CHAIN VERIFY: ${
-      tamperedVerification.verified
-        ? "MATCH"
-        : "MISMATCH"
-    }`
-  );
-
-  if (tamperedVerification.verified) {
-    throw new Error(
-      "Tampered provenance record unexpectedly verified."
-    );
-  }
-
-  console.log(
-    "METADATA TAMPER DETECTED: TRUE"
-  );
-
-  /*
-   * TEST 5
-   * Modify exactly one bit of the registered
-   * source media in memory.
-   *
-   * The original MP4 on disk is untouched.
-   */
-
-  console.log("\n======================================");
-  console.log("TEST 5 - MEDIA CONTENT TAMPER DETECTION");
-  console.log("======================================");
-
-  const originalMedia =
-    fs.readFileSync(
-      registeredAsset.sourceFilePath
-    );
-
-  const alteredMedia =
-    Buffer.from(originalMedia);
-
-  alteredMedia[alteredMedia.length - 1] =
-    alteredMedia[alteredMedia.length - 1]! ^ 0x01;
-
-  const originalMediaHash =
-    hashMediaContent(originalMedia);
-
-  const alteredMediaHash =
-    hashMediaContent(alteredMedia);
-
-  console.log(
-    `MEDIA FILE: ${registeredAsset.sourceFilePath}`
-  );
-  console.log(
-    `MEDIA SIZE: ${originalMedia.length} bytes`
-  );
-
-  console.log("\nREGISTERED MEDIA SHA-256:");
-  console.log(
-    registeredAsset.sourceContentHash
-  );
-
-  console.log("\nRECOMPUTED ORIGINAL SHA-256:");
-  console.log(originalMediaHash);
-
-  console.log("\nALTERED MEDIA SHA-256:");
-  console.log(alteredMediaHash);
-
-  /*
-   * Prove that the file currently on disk still
-   * matches the fingerprint established during
-   * registration.
-   */
-  const registeredMediaMatches =
-    registeredAsset.sourceContentHash ===
-    originalMediaHash;
-
-  console.log(
-    `\nREGISTERED MEDIA MATCH: ${
-      registeredMediaMatches
-        ? "TRUE"
-        : "FALSE"
-    }`
-  );
-
-  if (!registeredMediaMatches) {
-    throw new Error(
-      "Source media no longer matches its registered fingerprint."
-    );
-  }
-
-  const mediaHashChanged =
-    originalMediaHash !== alteredMediaHash;
-
-  console.log(
-    `CONTENT HASH CHANGED: ${
-      mediaHashChanged
-        ? "TRUE"
-        : "FALSE"
-    }`
-  );
-
-  if (!mediaHashChanged) {
-    throw new Error(
-      "Media alteration did not change the content hash."
-    );
-  }
-
-  /*
-   * Substitute the altered content fingerprint
-   * into the otherwise identical provenance record.
-   *
-   * The Solana anchor contains the proof created
-   * for the registered original media.
-   */
-  const mediaTamperedRecord = {
-    ...proof.record,
-    sourceContentHash: alteredMediaHash,
-  };
-
-  const mediaTamperedVerification =
-    await verifyProvenanceOnChain(
-      anchor.signature,
-      mediaTamperedRecord
-    );
-
-  console.log("\n======================================");
-  console.log("MEDIA TAMPER TEST RESULT");
-  console.log("======================================");
-
-  console.log(
-    `ON-CHAIN VERIFY: ${
-      mediaTamperedVerification.verified
-        ? "MATCH"
-        : "MISMATCH"
-    }`
-  );
-
-  if (mediaTamperedVerification.verified) {
-    throw new Error(
-      "Altered media unexpectedly matched the original provenance proof."
-    );
-  }
-
-  console.log(
-    "MEDIA TAMPER DETECTED: TRUE"
-  );
-
-  /*
-   * TEST 6
-   * Modify the actual machine-readable rights
-   * policy while retaining the same policy ID.
-   *
-   * Because the exact policy is fingerprinted and
-   * its hash is bound into provenance, changing a
-   * policy rule must invalidate the anchored proof.
-   */
-
-  console.log("\n======================================");
-  console.log("TEST 6 - RIGHTS POLICY TAMPER DETECTION");
-  console.log("======================================");
-
-  const tamperedPolicy: RightsPolicy = {
-    ...registeredAsset.policy,
-    aiTraining: "allow",
-  };
-
-  const originalPolicyHash =
-    registeredAsset.policyHash;
-
-  const tamperedPolicyHash =
-    hashRightsPolicy(tamperedPolicy);
-
-  console.log(
-    `POLICY ID: ${registeredAsset.policy.policyId}`
-  );
-
-  console.log("\nORIGINAL POLICY:");
-  console.log(
-    `AI TRAINING: ${registeredAsset.policy.aiTraining.toUpperCase()}`
-  );
-
-  console.log("\nTAMPERED POLICY:");
-  console.log(
-    `AI TRAINING: ${tamperedPolicy.aiTraining.toUpperCase()}`
-  );
-
-  console.log("\nORIGINAL POLICY SHA-256:");
-  console.log(originalPolicyHash);
-
-  console.log("\nTAMPERED POLICY SHA-256:");
-  console.log(tamperedPolicyHash);
-
-  const policyHashChanged =
-    originalPolicyHash !== tamperedPolicyHash;
-
-  console.log(
-    `\nPOLICY HASH CHANGED: ${
-      policyHashChanged
-        ? "TRUE"
-        : "FALSE"
-    }`
-  );
-
-  if (!policyHashChanged) {
-    throw new Error(
-      "Policy modification did not change the policy hash."
-    );
-  }
-
-  /*
-   * Substitute the altered policy fingerprint into
-   * the otherwise identical provenance record.
-   *
-   * The Solana anchor contains the proof generated
-   * from the original registered policy.
-   */
-  const policyTamperedRecord = {
-    ...proof.record,
-    policyHash: tamperedPolicyHash,
-  };
-
-  const policyTamperedVerification =
-    await verifyProvenanceOnChain(
-      anchor.signature,
-      policyTamperedRecord
-    );
-
-  console.log("\n======================================");
-  console.log("POLICY TAMPER TEST RESULT");
-  console.log("======================================");
-
-  console.log(
-    `ON-CHAIN VERIFY: ${
-      policyTamperedVerification.verified
-        ? "MATCH"
-        : "MISMATCH"
-    }`
-  );
-
-  if (policyTamperedVerification.verified) {
-    throw new Error(
-      "Altered rights policy unexpectedly matched the original provenance proof."
-    );
-  }
-
-  console.log(
-    "POLICY TAMPER DETECTED: TRUE"
-  );
-
-  /*
-   * Current end-to-end pipeline summary.
-   */
-
-  console.log("\n======================================");
-  console.log("END-TO-END RESULT");
-  console.log("======================================");
-
-  console.log("MEDIA REGISTRATION: COMPLETE");
-  console.log("RIGHTS POLICY: ATTACHED");
-  console.log(
-    "RIGHTS POLICY SHA-256: BOUND TO PROVENANCE"
-  );
-  console.log(
-    "AI TRAINING REQUEST: DENY / BLOCKED"
-  );
-  console.log(
-    "TRANSCODING REQUEST: ALLOW / AUTHORIZED"
-  );
-  console.log(
-    "REGISTERED MEDIA SHA-256: BOUND TO PROVENANCE"
-  );
-  console.log("PROVENANCE: CREATED");
-  console.log(
-    `PROVENANCE SHA-256: ${proof.provenanceHash}`
-  );
-  console.log("SOLANA ANCHOR: CONFIRMED");
-  console.log(
-    `TRANSACTION: ${anchor.signature}`
-  );
-  console.log(
-    "ORIGINAL RECORD VERIFY: MATCH"
-  );
-  console.log(
-    "METADATA TAMPER VERIFY: MISMATCH"
-  );
-  console.log(
-    "MEDIA CONTENT VERIFY: MISMATCH"
-  );
-  console.log(
-    "MEDIA TAMPER DETECTED: TRUE"
-  );
-  console.log(
-    "POLICY TAMPER VERIFY: MISMATCH"
-  );
-  console.log(
-    "POLICY TAMPER DETECTED: TRUE"
-  );
-
-  console.log("\nSTATUS: VERIFIED");
-
-  console.log("\n======================================");
-  console.log("RELAYSTREAM RIGHTS PIPELINE COMPLETE");
-  console.log("======================================");
 }
 
 runDemo().catch((error) => {

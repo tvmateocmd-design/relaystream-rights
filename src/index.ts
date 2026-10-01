@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import type { ProvenanceAction } from "./provenance";
 import {
-  createProvenanceRecord,
-  createProvenanceProof,
-  type ProvenanceAction,
-} from "./provenance";
+  transcodeMedia,
+  TranscodeError,
+  type TranscodeOptions,
+  type TranscodeResult,
+} from "./transcode-media";
 
 import {
   hashRightsPolicy,
@@ -10,7 +15,7 @@ import {
   type RightsAction,
 } from "./register-media";
 
-interface VerificationResult {
+export interface VerificationResult {
   assetId: string;
   policyId: string;
   owner: string;
@@ -97,96 +102,132 @@ export function verifyPermission(
   };
 }
 
-export function executeAuthorizedTransformation(
+export interface ExecutionOptions {
+  outputDirectory?: string;
+  processorOptions?: TranscodeOptions;
+}
+
+export interface ExecutionDependencies {
+  processor: typeof transcodeMedia;
+}
+
+interface ExecutionContext {
+  assetId: string;
+  derivedAssetId: string;
+  action: ProvenanceAction;
+  authorization: VerificationResult;
+  // This checkpoint stops before any proof, blockchain or economic operation.
+  provenanceCreated: false;
+  solanaAnchored: false;
+  royaltyEventCreated: false;
+}
+
+export type ExecutionResult = ExecutionContext & (
+  | {
+      status: "blocked";
+      reasonCode: "PERMISSION_DENIED" | "POLICY_INTEGRITY_FAILED";
+      reason: string;
+      processorInvoked: false;
+      processingCompleted: false;
+      executionId: null;
+      processingResult: null;
+    }
+  | {
+      status: "failed";
+      stage: "request_validation" | "source_validation" | "processing";
+      error: { code: string; message: string };
+      processorInvoked: boolean;
+      processingCompleted: false;
+      executionId: null;
+      processingResult: null;
+    }
+  | {
+      status: "processed";
+      processorInvoked: true;
+      processingCompleted: true;
+      executionId: string;
+      processingResult: TranscodeResult;
+    }
+);
+
+export async function executeAuthorizedTransformation(
   asset: RegisteredMediaAsset,
   action: ProvenanceAction,
-  derivedAssetId: string
-) {
-  const verification =
-    verifyPermission(asset, action);
-
-  console.log("\n==============================");
-  console.log("TRANSFORMATION REQUEST");
-  console.log("==============================");
-  console.log(`Source Asset: ${asset.assetId}`);
-  console.log(`Requested Action: ${action}`);
-
-  console.log("\nPOLICY INTEGRITY");
-  console.log("==============================");
-  console.log(
-    `REGISTERED POLICY SHA-256: ${verification.registeredPolicyHash}`
-  );
-  console.log(
-    `CURRENT POLICY SHA-256:    ${verification.currentPolicyHash}`
-  );
-  console.log(
-    `INTEGRITY: ${
-      verification.policyIntegrityValid
-        ? "VERIFIED"
-        : "FAILED"
-    }`
-  );
-
-  if (!verification.authorized) {
-    console.log("STATUS: BLOCKED");
-    console.log(
-      `REASON: ${verification.reason}`
-    );
-    return null;
+  derivedAssetId: string,
+  options: ExecutionOptions = {},
+  dependencies: ExecutionDependencies = { processor: transcodeMedia },
+): Promise<ExecutionResult> {
+  // Copy both the asset and nested policy before checking permission or awaiting IO.
+  const snapshot = structuredClone(asset);
+  Object.freeze(snapshot.policy);
+  Object.freeze(snapshot);
+  const authorization = Object.freeze(verifyPermission(snapshot, action));
+  const context: ExecutionContext = {
+    assetId: snapshot.assetId,
+    derivedAssetId,
+    action,
+    authorization,
+    provenanceCreated: false,
+    solanaAnchored: false,
+    royaltyEventCreated: false,
+  };
+  if (!authorization.authorized || !authorization.policyIntegrityValid) {
+    return {
+      ...context,
+      status: "blocked",
+      reasonCode: authorization.policyIntegrityValid ? "PERMISSION_DENIED" : "POLICY_INTEGRITY_FAILED",
+      reason: authorization.reason,
+      processorInvoked: false,
+      processingCompleted: false,
+      executionId: null,
+      processingResult: null,
+    };
   }
 
-  console.log("STATUS: AUTHORIZED");
-  console.log(
-    `Derived Asset: ${derivedAssetId}`
-  );
+  const fail = (
+    stage: "request_validation" | "source_validation" | "processing",
+    code: string,
+    message: string,
+    processorInvoked = false,
+  ): ExecutionResult => ({
+    ...context, status: "failed", stage, error: { code, message },
+    processorInvoked, processingCompleted: false, executionId: null, processingResult: null,
+  });
+  if (action !== "transcoding") {
+    return fail("request_validation", "UNSUPPORTED_ACTION", "Only transcoding has a real media processor.");
+  }
+  if (!derivedAssetId.trim()) {
+    return fail("request_validation", "INVALID_DERIVED_ASSET_ID", "A derived asset ID is required.");
+  }
+  // Capture configuration as well, so callers cannot change it across the await.
+  const outputDirectory = path.resolve(options.outputDirectory ?? "generated-media");
+  const processorOptions = { ...options.processorOptions };
+  const processor = dependencies.processor;
+  try {
+    const sourceBytes = await readFile(snapshot.sourceFilePath);
+    const currentSourceHash = createHash("sha256").update(sourceBytes).digest("hex");
+    if (currentSourceHash !== snapshot.sourceContentHash) {
+      return fail("source_validation", "SOURCE_HASH_MISMATCH", "Source bytes do not match the SHA-256 established at registration.");
+    }
+  } catch (error) {
+    return fail("source_validation", "SOURCE_READ_FAILED", error instanceof Error ? error.message : "Cannot read registered source media.");
+  }
 
-  /*
-   * The media fingerprint was established
-   * during registration.
-   *
-   * The transformation engine does not
-   * independently invent or rediscover
-   * the identity of the source media.
-   */
-  console.log("\nREGISTERED MEDIA FINGERPRINT");
-  console.log("==============================");
-  console.log(
-    `HASH ALGORITHM: ${asset.hashAlgorithm}`
-  );
-  console.log(
-    `CONTENT SHA-256: ${asset.sourceContentHash}`
-  );
-
-  /*
-   * Bind the registered media fingerprint
-   * and verified policy hash into the
-   * provenance record.
-   */
-  const provenance =
-    createProvenanceRecord(
-      asset.assetId,
-      derivedAssetId,
-      asset.policy.policyId,
-      asset.policyHash,
-      action,
-      asset.owner,
-      asset.sourceContentHash
+  try {
+    // The adapter independently verifies the exact snapshot it feeds to FFmpeg.
+    const processingResult = await processor({
+      sourceFilePath: snapshot.sourceFilePath,
+      expectedSourceContentHash: snapshot.sourceContentHash,
+      outputDirectory,
+    }, processorOptions);
+    return {
+      ...context, status: "processed", processorInvoked: true, processingCompleted: true,
+      executionId: processingResult.executionId, processingResult,
+    };
+  } catch (error) {
+    return fail(
+      "processing", error instanceof TranscodeError ? error.code : "PROCESSING_FAILED",
+      error instanceof Error ? error.message : "Media processing failed.", true,
     );
-
-  console.log("\nPROVENANCE CREATED:");
-  console.log(provenance);
-
-  const proof =
-    createProvenanceProof(provenance);
-
-  console.log("\nPROVENANCE PROOF");
-  console.log("==============================");
-  console.log(
-    `HASH ALGORITHM: ${proof.hashAlgorithm}`
-  );
-  console.log(
-    `SHA-256: ${proof.provenanceHash}`
-  );
-
-  return proof;
+  }
 }

@@ -18,6 +18,7 @@ import {
 
 import type {
   ProvenanceAction,
+  ProvenanceProof,
 } from "./provenance";
 
 import {
@@ -494,257 +495,231 @@ const server = http.createServer(
           return;
         }
 
-        /*
-         * STEP 2
-         *
-         * Create provenance for the authorized
-         * transformation request.
-         */
-        const proof =
-          executeAuthorizedTransformation(
-            asset,
-            body.action,
-            body.derivedAssetId
-          );
+        // Checkpoint 2 returns processing only; no proof exists to anchor yet.
+        const execution = await executeAuthorizedTransformation(
+          asset,
+          body.action,
+          body.derivedAssetId
+        );
+        sendJson(
+          response,
+          execution.status === "blocked" ? 403 : execution.status === "failed" ? 422 : 200,
+          execution
+        );
+        return;
 
-        if (!proof) {
-          sendJson(response, 403, {
-            status: "blocked",
+        // Retain the existing proof consumer without invoking it at this checkpoint.
+        // A later checkpoint will migrate this orchestration into the shared workflow.
+        async function completeLegacyProof(
+          proof: ProvenanceProof,
+          asset: RegisteredMediaAsset,
+          body: ExecuteActionRequest
+        ) {
+          /*
+           * STEP 3
+           *
+           * Anchor the exact provenance SHA-256
+           * proof to Solana Devnet.
+           */
+          const anchor =
+            await anchorProvenanceProof(
+              proof.provenanceHash
+            );
+
+          /*
+           * STEP 4
+           *
+           * Create a deterministic royalty event
+           * only AFTER:
+           *
+           * - rights authorization
+           * - provenance creation
+           * - provenance proof
+           * - confirmed Solana anchor
+           *
+           * Default demo usage value is 100.
+           */
+          const usageAmount =
+            body.usageAmount ?? 100;
+
+          const royaltyEvent =
+            createRoyaltyEvent({
+              assetId:
+                asset.assetId,
+
+              action:
+                body.action,
+
+              derivedAssetId:
+                body.derivedAssetId,
+
+              provenanceId:
+                proof.record.provenanceId,
+
+              provenanceHash:
+                proof.provenanceHash,
+
+              solanaSignature:
+                anchor.signature,
+
+              authorized: true,
+
+              usageAmount,
+
+              royaltyRule:
+                DEMO_ROYALTY_RULE,
+            });
+
+          /*
+           * STEP 5
+           *
+           * Cryptographically fingerprint the
+           * exact royalty event.
+           */
+          const royaltyProof =
+            hashRoyaltyEvent(
+              royaltyEvent
+            );
+
+          /*
+           * STEP 6
+           *
+           * Return the complete result to the
+           * calling application.
+           */
+          sendJson(response, 200, {
+            status: "authorized",
 
             assetId:
               asset.assetId,
-
-            action:
-              body.action,
-
-            authorized: false,
-
-            provenanceCreated:
-              false,
-
-            solanaAnchored:
-              false,
-
-            royaltyEventCreated:
-              false,
-
-            royaltyAllocated:
-              false,
-
-            allocatedAmount:
-              0,
-
-            error:
-              "Authorized transformation did not create provenance.",
-          });
-
-          return;
-        }
-
-        /*
-         * STEP 3
-         *
-         * Anchor the exact provenance SHA-256
-         * proof to Solana Devnet.
-         */
-        const anchor =
-          await anchorProvenanceProof(
-            proof.provenanceHash
-          );
-
-        /*
-         * STEP 4
-         *
-         * Create a deterministic royalty event
-         * only AFTER:
-         *
-         * - rights authorization
-         * - provenance creation
-         * - provenance proof
-         * - confirmed Solana anchor
-         *
-         * Default demo usage value is 100.
-         */
-        const usageAmount =
-          body.usageAmount ?? 100;
-
-        const royaltyEvent =
-          createRoyaltyEvent({
-            assetId:
-              asset.assetId,
-
-            action:
-              body.action,
 
             derivedAssetId:
               body.derivedAssetId,
 
-            provenanceId:
-              proof.record.provenanceId,
+            policyId:
+              asset.policy.policyId,
 
-            provenanceHash:
-              proof.provenanceHash,
+            policyHash:
+              asset.policyHash,
 
-            solanaSignature:
-              anchor.signature,
+            policyIntegrityValid:
+              rightsResult.policyIntegrityValid,
+
+            registeredPolicyHash:
+              rightsResult.registeredPolicyHash,
+
+            currentPolicyHash:
+              rightsResult.currentPolicyHash,
+
+            action:
+              body.action,
+
+            decision: "allow",
 
             authorized: true,
 
-            usageAmount,
+            provenanceCreated: true,
 
-            royaltyRule:
-              DEMO_ROYALTY_RULE,
+            provenance: {
+              provenanceId:
+                proof.record.provenanceId,
+
+              sourceAssetId:
+                proof.record.sourceAssetId,
+
+              derivedAssetId:
+                proof.record.derivedAssetId,
+
+              policyId:
+                proof.record.policyId,
+
+              policyHash:
+                proof.record.policyHash,
+
+              action:
+                proof.record.action,
+
+              owner:
+                proof.record.owner,
+
+              sourceContentHash:
+                proof.record.sourceContentHash,
+
+              createdAt:
+                proof.record.createdAt,
+            },
+
+            proof: {
+              hashAlgorithm:
+                proof.hashAlgorithm,
+
+              provenanceHash:
+                proof.provenanceHash,
+            },
+
+            solana: {
+              anchored: true,
+              network: "devnet",
+              commitment:
+                "confirmed",
+
+              signature:
+                anchor.signature,
+
+              signer:
+                anchor.signer,
+
+              memo:
+                anchor.memo,
+
+              provenanceHash:
+                anchor.provenanceHash,
+            },
+
+            royalty: {
+              eventCreated: true,
+
+              allocationOnly: true,
+
+              fundsTransferred: false,
+
+              royaltyEventId:
+                royaltyEvent.royaltyEventId,
+
+              royaltyRuleId:
+                royaltyEvent.royaltyRuleId,
+
+              currency:
+                royaltyEvent.currency,
+
+              usageAmount:
+                royaltyEvent.usageAmount,
+
+              totalAllocated:
+                royaltyEvent.totalAllocated,
+
+              allocations:
+                royaltyEvent.allocations,
+
+              provenanceId:
+                royaltyEvent.provenanceId,
+
+              provenanceHash:
+                royaltyEvent.provenanceHash,
+
+              solanaSignature:
+                royaltyEvent.solanaSignature,
+
+              createdAt:
+                royaltyEvent.createdAt,
+
+              proof:
+                royaltyProof,
+            },
           });
 
-        /*
-         * STEP 5
-         *
-         * Cryptographically fingerprint the
-         * exact royalty event.
-         */
-        const royaltyProof =
-          hashRoyaltyEvent(
-            royaltyEvent
-          );
-
-        /*
-         * STEP 6
-         *
-         * Return the complete result to the
-         * calling application.
-         */
-        sendJson(response, 200, {
-          status: "authorized",
-
-          assetId:
-            asset.assetId,
-
-          derivedAssetId:
-            body.derivedAssetId,
-
-          policyId:
-            asset.policy.policyId,
-
-          policyHash:
-            asset.policyHash,
-
-          policyIntegrityValid:
-            rightsResult.policyIntegrityValid,
-
-          registeredPolicyHash:
-            rightsResult.registeredPolicyHash,
-
-          currentPolicyHash:
-            rightsResult.currentPolicyHash,
-
-          action:
-            body.action,
-
-          decision: "allow",
-
-          authorized: true,
-
-          provenanceCreated: true,
-
-          provenance: {
-            provenanceId:
-              proof.record.provenanceId,
-
-            sourceAssetId:
-              proof.record.sourceAssetId,
-
-            derivedAssetId:
-              proof.record.derivedAssetId,
-
-            policyId:
-              proof.record.policyId,
-
-            policyHash:
-              proof.record.policyHash,
-
-            action:
-              proof.record.action,
-
-            owner:
-              proof.record.owner,
-
-            sourceContentHash:
-              proof.record.sourceContentHash,
-
-            createdAt:
-              proof.record.createdAt,
-          },
-
-          proof: {
-            hashAlgorithm:
-              proof.hashAlgorithm,
-
-            provenanceHash:
-              proof.provenanceHash,
-          },
-
-          solana: {
-            anchored: true,
-            network: "devnet",
-            commitment:
-              "confirmed",
-
-            signature:
-              anchor.signature,
-
-            signer:
-              anchor.signer,
-
-            memo:
-              anchor.memo,
-
-            provenanceHash:
-              anchor.provenanceHash,
-          },
-
-          royalty: {
-            eventCreated: true,
-
-            allocationOnly: true,
-
-            fundsTransferred: false,
-
-            royaltyEventId:
-              royaltyEvent.royaltyEventId,
-
-            royaltyRuleId:
-              royaltyEvent.royaltyRuleId,
-
-            currency:
-              royaltyEvent.currency,
-
-            usageAmount:
-              royaltyEvent.usageAmount,
-
-            totalAllocated:
-              royaltyEvent.totalAllocated,
-
-            allocations:
-              royaltyEvent.allocations,
-
-            provenanceId:
-              royaltyEvent.provenanceId,
-
-            provenanceHash:
-              royaltyEvent.provenanceHash,
-
-            solanaSignature:
-              royaltyEvent.solanaSignature,
-
-            createdAt:
-              royaltyEvent.createdAt,
-
-            proof:
-              royaltyProof,
-          },
-        });
-
-        return;
+          return;
+        }
       }
 
       /*
