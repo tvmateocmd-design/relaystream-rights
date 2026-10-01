@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
+import { createDemoRoyaltyRule, prepareRoyaltyRequest, type RoyaltyRule } from "./royalties";
 
 import {
   hashMediaContent,
@@ -34,6 +35,7 @@ export interface RegisteredMediaAsset {
   hashAlgorithm: "sha256";
   policy: RightsPolicy;
   policyHash: string;
+  royaltyRule: RoyaltyRule;
 }
 
 export interface RegisterMediaInput {
@@ -43,6 +45,7 @@ export interface RegisterMediaInput {
   sourceUri: string;
   sourceFilePath: string;
   policy: RightsPolicy;
+  royaltyRule?: RoyaltyRule;
 }
 
 export function hashRightsPolicy(
@@ -68,6 +71,8 @@ export function hashRightsPolicy(
 export function registerMedia(
   input: RegisterMediaInput
 ): RegisteredMediaAsset {
+  const royaltyRule = structuredClone(input.royaltyRule ?? createDemoRoyaltyRule(input.assetId));
+  prepareRoyaltyRequest(royaltyRule, input.assetId);
   const mediaContent =
     fs.readFileSync(input.sourceFilePath);
 
@@ -88,6 +93,7 @@ export function registerMedia(
     hashAlgorithm: "sha256",
     policy: input.policy,
     policyHash,
+    royaltyRule,
   };
 
   console.log("\n======================================");

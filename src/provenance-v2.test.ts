@@ -72,7 +72,8 @@ test("ALLOW returns immutable v2 provenance, a verified proof and independently 
   assert.equal(success.provenance.schemaVersion, 2);
   assert.equal(success.proof.record, success.provenance);
   assert.equal(success.solanaAnchored, true);
-  assert.equal(success.royaltyEventCreated, false);
+  assert.equal(success.royaltyEventCreated, true);
+  assert.equal(success.fundsTransferred, false);
   assert.equal(success.provenance.executionId, success.executionId);
   assert.equal(success.provenance.sourceAssetId, success.authorization.assetId);
   assert.equal(success.provenance.sourceContentHash, success.authorization.sourceContentHash);
@@ -88,7 +89,7 @@ test("ALLOW returns immutable v2 provenance, a verified proof and independently 
   const verified = await verifyOutputContent(success.processingResult.outputFilePath, success.provenance);
   assert.equal(verified.verified, true);
   assert.equal(verified.computedHash, independentHash);
-  t.diagnostic(`PROVENANCE_V2_EXAMPLE ${JSON.stringify({ provenance: success.provenance, proof: success.proof, independentOutputVerification: verified, independentlyHashedOutput: independentHash, solanaAnchored: success.solanaAnchored, royaltyEventCreated: false })}`);
+  t.diagnostic(`PROVENANCE_V2_EXAMPLE ${JSON.stringify({ provenance: success.provenance, proof: success.proof, independentOutputVerification: verified, independentlyHashedOutput: independentHash, solanaAnchored: success.solanaAnchored, royaltyEventCreated: success.royaltyEventCreated, fundsTransferred: false })}`);
 });
 
 test("changing output bytes without changing file size fails independent output verification", async (t) => {

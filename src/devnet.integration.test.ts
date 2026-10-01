@@ -26,12 +26,15 @@ test("opt-in: fresh real Devnet anchor of processed Provenance v2, independently
     policy: { policyId: "checkpoint-4-transcoding", commercialUse: "deny", aiTraining: "deny", derivatives: "deny",
       transcoding: "allow", attributionRequired: true, provenanceRequired: true },
   });
-  const result = await executeAuthorizedTransformation(asset, "transcoding", "checkpoint-4-derived", { outputDirectory: directory });
+  const result = await executeAuthorizedTransformation(asset, "transcoding", "checkpoint-4-derived", {
+    outputDirectory: directory, royaltyLedgerDirectory: path.join(directory, "royalty-ledger"),
+  });
   await fs.writeFile(receiptPath, JSON.stringify({ expectedAuthority: authority, execution: result }, null, 2));
   t.diagnostic(`DEVNET_EXECUTION_RECEIPT ${receiptPath}`);
   if (result.status !== "processed") assert.fail(JSON.stringify(result));
   assert.equal(result.provenanceCreated, true); assert.equal(verifyProvenanceProof(result.proof), true);
-  assert.equal(result.solanaAnchored, true); assert.equal(result.royaltyEventCreated, false);
+  assert.equal(result.solanaAnchored, true); assert.equal(result.royaltyEventCreated, true);
+  assert.equal(result.fundsTransferred, false);
   assert.equal(result.anchor.expectedAuthority, authority);
   assert.equal(result.anchor.submission?.provenanceHash, result.proof.provenanceHash);
 
@@ -46,5 +49,5 @@ test("opt-in: fresh real Devnet anchor of processed Provenance v2, independently
   const receipt = { expectedAuthority: authority, execution: result, independentVerification: independent, independentlyHashedOutput: outputHash };
   await fs.writeFile(receiptPath, JSON.stringify(receipt, null, 2));
   t.diagnostic(`FRESH_DEVNET_RESULT ${JSON.stringify({ provenanceHash: result.proof.provenanceHash,
-    signature: result.solanaSignature, independentVerification: independent, outputHash, receiptPath, royaltyEventCreated: false })}`);
+    signature: result.solanaSignature, independentVerification: independent, outputHash, receiptPath, royaltyEventCreated: result.royaltyEventCreated, fundsTransferred: false })}`);
 });

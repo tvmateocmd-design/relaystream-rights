@@ -49,11 +49,12 @@ async function fixture(t: TestContext, permission: Permission) {
 
 function assertNoDownstreamEffects(result: ExecutionResult) {
   assert.equal(result.solanaAnchored, result.status === "processed");
-  assert.equal(result.royaltyEventCreated, false);
+  assert.equal(result.royaltyEventCreated, result.status === "processed");
+  assert.equal(result.fundsTransferred, false);
   assert.equal("provenanceHash" in result, false);
   assert.equal("record" in result, false);
   assert.equal(result.solanaSignature === null, result.status !== "processed");
-  assert.equal("royalty" in result, false);
+  assert.equal(result.royalty === null, result.status !== "processed");
   if (result.status === "processed") {
     assert.equal(result.provenanceCreated, true);
     assert.equal(result.provenance.schemaVersion, 2);

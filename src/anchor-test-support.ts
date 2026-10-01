@@ -3,6 +3,7 @@ import { DEVNET_ENDPOINT, DEVNET_GENESIS_HASH, MEMO_PROGRAM_ID, provenanceMemo }
 import { verifyProvenanceOnChain, type VerificationConnection } from "./verify-provenance";
 import { hashProvenanceRecord } from "./provenance";
 import type { ExecutionDependencies } from "./index";
+import { InMemoryRoyaltyEventStore } from "./royalty-event-store";
 
 export const TEST_AUTHORITY = new PublicKey(new Uint8Array(32).fill(7)).toBase58();
 export const TEST_SIGNATURE = "local-test-signature";
@@ -26,8 +27,9 @@ export function connectionFixture(transaction: VersionedTransactionResponse | nu
 }
 
 // Explicitly injected in local tests. No signer file reads, network requests, or real submissions.
-export function localAnchorDependencies(): Pick<ExecutionDependencies, "anchor" | "getAuthority" | "verifyAnchor"> {
+export function localAnchorDependencies(): Pick<ExecutionDependencies, "anchor" | "getAuthority" | "verifyAnchor" | "royaltyStore"> {
   return {
+    royaltyStore: new InMemoryRoyaltyEventStore(),
     getAuthority: () => TEST_AUTHORITY,
     anchor: async (hash, authority = TEST_AUTHORITY, version = 2) => ({
       signature: TEST_SIGNATURE, provenanceHash: hash, memo: provenanceMemo(hash, version),

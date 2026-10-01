@@ -1,4 +1,5 @@
 # Logs
+royalty-ledger/
 logs
 *.log
 npm-debug.log*

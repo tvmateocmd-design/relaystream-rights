@@ -50,6 +50,7 @@ test("successful anchor receives the exact locally verified v2 hash after proces
   const local = localAnchorDependencies();
   let exactHash = "";
   const dependencies: ExecutionDependencies = {
+    royaltyStore: local.royaltyStore!,
     processor: async () => { events.push("processing"); return output; },
     createProof: async completed => {
       const proof = await createProvenanceV2Proof(completed);
@@ -65,7 +66,8 @@ test("successful anchor receives the exact locally verified v2 hash after proces
   };
   const result = await executeAuthorizedTransformation(asset("success"), "transcoding", "derived", {}, dependencies);
   assert.equal(result.status, "processed"); assert.equal(result.solanaAnchored, true);
-  assert.equal(result.provenanceCreated, true); assert.equal(result.royaltyEventCreated, false);
+  assert.equal(result.provenanceCreated, true); assert.equal(result.royaltyEventCreated, true);
+  assert.equal(result.fundsTransferred, false);
   assert.equal(result.solanaSignature, TEST_SIGNATURE); assert.equal(result.anchor?.verification?.verified, true);
   assert.deepEqual(events, ["processing", "verified-provenance", "authority", "anchor", "independent-fetch"]);
 });

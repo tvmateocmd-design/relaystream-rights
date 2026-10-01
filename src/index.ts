@@ -16,8 +16,10 @@ import {
   type TranscodeOptions,
   type TranscodeResult,
 } from "./transcode-media";
-import { anchorProvenanceProof, AnchorError, getDevnetAuthority, provenanceMemo, type AnchorResult } from "./anchor-provenance";
+import { anchorProvenanceProof, AnchorError, getDevnetAuthority, provenanceMemo, DEVNET_ENDPOINT, DEVNET_GENESIS_HASH, type AnchorResult } from "./anchor-provenance";
 import { verifyProvenanceOnChain, type VerificationResult as OnChainVerification } from "./verify-provenance";
+import { createDemoRoyaltyRule, prepareRoyaltyRequest, createRoyaltyEvent, RoyaltyError, type PreparedRoyaltyRequest, type RoyaltyReceipt } from "./royalties";
+import { FileRoyaltyEventStore, type RoyaltyEventStore } from "./royalty-event-store";
 
 import {
   hashRightsPolicy,
@@ -118,6 +120,8 @@ export function verifyPermission(
 export interface ExecutionOptions {
   outputDirectory?: string;
   processorOptions?: TranscodeOptions;
+  usageAmount?: number | string;
+  royaltyLedgerDirectory?: string;
 }
 
 export interface ExecutionDependencies {
@@ -126,6 +130,8 @@ export interface ExecutionDependencies {
   anchor?: typeof anchorProvenanceProof;
   getAuthority?: typeof getDevnetAuthority;
   verifyAnchor?: typeof verifyProvenanceOnChain;
+  createRoyalty?: typeof createRoyaltyEvent;
+  royaltyStore?: RoyaltyEventStore;
 }
 
 export interface AnchorReceipt {
@@ -147,7 +153,10 @@ interface ExecutionContext {
   solanaAnchored: boolean;
   solanaSignature: string | null;
   anchor: AnchorReceipt | null;
-  royaltyEventCreated: false;
+  royaltyEventCreated: boolean;
+  royaltyAllocated: boolean;
+  royalty: RoyaltyReceipt | null;
+  fundsTransferred: false;
 }
 
 export type ExecutionResult = ExecutionContext & (
@@ -190,6 +199,24 @@ export type ExecutionResult = ExecutionContext & (
       anchor: AnchorReceipt;
     }
   | {
+      status: "failed";
+      stage: "royalty";
+      error: { code: string; message: string };
+      processorInvoked: true;
+      processingCompleted: true;
+      executionId: string;
+      processingResult: TranscodeResult;
+      provenanceCreated: true;
+      provenance: ProvenanceV2Record;
+      proof: ProvenanceProof<ProvenanceV2Record>;
+      solanaAnchored: true;
+      solanaSignature: string;
+      anchor: AnchorReceipt;
+      royaltyEventCreated: false;
+      royaltyAllocated: false;
+      royalty: null;
+    }
+  | {
       status: "processed";
       processorInvoked: true;
       processingCompleted: true;
@@ -201,6 +228,9 @@ export type ExecutionResult = ExecutionContext & (
       solanaAnchored: true;
       solanaSignature: string;
       anchor: AnchorReceipt;
+      royaltyEventCreated: true;
+      royaltyAllocated: true;
+      royalty: RoyaltyReceipt;
     }
 );
 
@@ -225,6 +255,9 @@ export async function executeAuthorizedTransformation(
     solanaSignature: null,
     anchor: null,
     royaltyEventCreated: false,
+    royaltyAllocated: false,
+    royalty: null,
+    fundsTransferred: false,
   };
   if (!authorization.authorized || !authorization.policyIntegrityValid) {
     return {
@@ -258,6 +291,13 @@ export async function executeAuthorizedTransformation(
   if (!derivedAssetId.trim()) {
     return fail("request_validation", "INVALID_DERIVED_ASSET_ID", "A derived asset ID is required.");
   }
+  let royaltyRequest: PreparedRoyaltyRequest;
+  try {
+    royaltyRequest = prepareRoyaltyRequest(snapshot.royaltyRule ?? createDemoRoyaltyRule(snapshot.assetId), snapshot.assetId,
+      options.usageAmount === undefined ? 100 : options.usageAmount);
+  } catch (error) {
+    return fail("request_validation", "INVALID_ROYALTY_REQUEST", error instanceof Error ? error.message : "Invalid royalty rule or usage amount.");
+  }
   // Capture configuration as well, so callers cannot change it across the await.
   const outputDirectory = path.resolve(options.outputDirectory ?? "generated-media");
   const processorOptions = { ...options.processorOptions };
@@ -266,6 +306,8 @@ export async function executeAuthorizedTransformation(
   const anchorProof = dependencies.anchor ?? anchorProvenanceProof;
   const getAuthority = dependencies.getAuthority ?? getDevnetAuthority;
   const verifyAnchor = dependencies.verifyAnchor ?? verifyProvenanceOnChain;
+  const createRoyalty = dependencies.createRoyalty ?? createRoyaltyEvent;
+  const royaltyStore = dependencies.royaltyStore ?? new FileRoyaltyEventStore(options.royaltyLedgerDirectory ?? "royalty-ledger");
   let proof: ProvenanceProof<ProvenanceV2Record>;
   try {
     const sourceBytes = await readFile(snapshot.sourceFilePath);
@@ -326,6 +368,8 @@ export async function executeAuthorizedTransformation(
   let submission: AnchorResult | null = null;
   let verification: OnChainVerification | null = null;
   let anchorStage: AnchorReceipt["stage"] = "preflight";
+  let verifiedReceipt: AnchorReceipt;
+  let verifiedSignature: string;
   try {
     expectedAuthority = getAuthority();
     anchorStage = "submission";
@@ -341,14 +385,13 @@ export async function executeAuthorizedTransformation(
     if (!verification.verified || !verification.transactionSucceeded || verification.signature !== submission.signature
       || verification.computedHash !== proof.provenanceHash || verification.expectedMemo !== expectedMemo
       || verification.onChainMemo !== expectedMemo || verification.expectedAuthority !== expectedAuthority
-      || verification.verifiedAuthority !== expectedAuthority || verification.network !== "devnet") {
+      || verification.verifiedAuthority !== expectedAuthority || verification.network !== "devnet"
+      || verification.rpcEndpoint !== DEVNET_ENDPOINT || verification.genesisHash !== DEVNET_GENESIS_HASH) {
       throw new Error(verification.reason || "Independent Devnet verification failed.");
     }
-    return {
-      ...localResult, status: "processed", solanaAnchored: true, solanaSignature: submission.signature,
-      anchor: { state: "verified", stage: "verification", transactionStatus: "confirmed", signature: submission.signature,
-        expectedAuthority, submission, verification, error: null },
-    };
+    verifiedSignature = submission.signature;
+    verifiedReceipt = { state: "verified", stage: "verification", transactionStatus: "confirmed", signature: submission.signature,
+      expectedAuthority, submission, verification, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Solana anchoring failed.";
     const signature = error instanceof AnchorError ? error.signature : submission?.signature ?? null;
@@ -360,5 +403,16 @@ export async function executeAuthorizedTransformation(
           : anchorStage === "preflight" ? "not_submitted" : "unknown",
         signature, expectedAuthority, submission, verification, error: message },
     };
+  }
+  const anchored = { ...localResult, solanaAnchored: true as const, solanaSignature: verifiedSignature, anchor: verifiedReceipt };
+  try {
+    // The royalty factory rechecks the exact verified proof/anchor binding and commits
+    // event plus allocation atomically under the execution's idempotency key.
+    const royalty = await createRoyalty(anchored, royaltyRequest, royaltyStore);
+    return { ...anchored, status: "processed", royaltyEventCreated: true, royaltyAllocated: true, royalty };
+  } catch (error) {
+    return { ...anchored, status: "failed", stage: "royalty", royaltyEventCreated: false, royaltyAllocated: false, royalty: null,
+      error: { code: error instanceof RoyaltyError ? error.code : "ROYALTY_FAILED",
+        message: error instanceof Error ? error.message : "Cannot record royalty allocation." } };
   }
 }

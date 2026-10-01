@@ -126,9 +126,9 @@ async function runDemo() {
     );
   }
 
-  console.log("\nCHECKPOINT 4: VERIFIED MEDIA PROVENANCE ANCHORED TO DEVNET");
+  console.log("\nCHECKPOINT 5: VERIFIED MEDIA PROVENANCE AND ROYALTY ALLOCATION COMPLETE");
   console.log(JSON.stringify(execution, null, 2));
-  // Royalties remain disconnected.
+  // Accounting only: fundsTransferred remains false.
 
   // Preserve the original on-chain checks; no proof is passed to this helper.
   async function runLegacyProofChecks(proof: ProvenanceProof) {
