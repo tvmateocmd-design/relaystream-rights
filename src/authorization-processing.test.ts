@@ -47,13 +47,21 @@ async function fixture(t: TestContext, permission: Permission) {
 }
 
 function assertNoDownstreamEffects(result: ExecutionResult) {
-  assert.equal(result.provenanceCreated, false);
   assert.equal(result.solanaAnchored, false);
   assert.equal(result.royaltyEventCreated, false);
   assert.equal("provenanceHash" in result, false);
   assert.equal("record" in result, false);
   assert.equal("solanaSignature" in result, false);
   assert.equal("royalty" in result, false);
+  if (result.status === "processed") {
+    assert.equal(result.provenanceCreated, true);
+    assert.equal(result.provenance.schemaVersion, 2);
+    assert.equal(result.proof.record, result.provenance);
+  } else {
+    assert.equal(result.provenanceCreated, false);
+    assert.equal(result.provenance, null);
+    assert.equal(result.proof, null);
+  }
 }
 
 async function assertNoOutput(outputDirectory: string) {
@@ -186,6 +194,12 @@ test("asset, nested policy and processor configuration are captured before async
   assert.equal(result.authorization.owner, "RelayStream");
   assert.equal(result.authorization.registeredPolicyHash, registeredPolicyHash);
   assert.equal(result.authorization.currentPolicyHash, registeredPolicyHash);
+  if (result.status !== "processed") assert.fail("Expected processing and provenance to complete.");
+  assert.equal(result.provenance.sourceAssetId, "authorization-allow");
+  assert.equal(result.provenance.policyId, "policy-allow");
+  assert.equal(result.provenance.policyHash, registeredPolicyHash);
+  assert.equal(result.provenance.sourceContentHash, registeredHash);
+  assert.equal(result.provenance.owner, "RelayStream");
   assert.equal(processor.mock.calls[0]?.arguments[0].sourceFilePath, registeredPath);
   assert.equal(processor.mock.calls[0]?.arguments[0].expectedSourceContentHash, registeredHash);
   assert.equal(processor.mock.calls[0]?.arguments[1]?.timeoutMs, 120_000);

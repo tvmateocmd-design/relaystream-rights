@@ -126,11 +126,11 @@ async function runDemo() {
     );
   }
 
-  console.log("\nCHECKPOINT 2: AUTHORIZED MEDIA PROCESSING COMPLETE");
+  console.log("\nCHECKPOINT 3: AUTHORIZED MEDIA AND PROVENANCE COMPLETE");
   console.log(JSON.stringify(execution, null, 2));
-  // Provenance v2, anchoring and royalties are reserved for later checkpoints.
+  // Anchoring and royalties are reserved for later checkpoints.
 
-  // Preserve the original proof checks; no proof is passed or created in Checkpoint 2.
+  // Preserve the original on-chain checks; no proof is passed to this helper.
   async function runLegacyProofChecks(proof: ProvenanceProof) {
     console.log("\nPIPELINE: PROVENANCE PROOF READY");
     console.log(

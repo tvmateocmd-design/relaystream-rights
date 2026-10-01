@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:media": "tsx --test src/transcode-media.test.ts",
-    "test:authorization-processing": "tsx --test src/authorization-processing.test.ts"
+    "test:authorization-processing": "tsx --test src/authorization-processing.test.ts",
+    "test:provenance": "tsx --test src/provenance-v2.test.ts"
   },
   "repository": {
     "type": "git",

@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProvenanceAction } from "./provenance";
+import {
+  createProvenanceV2Proof,
+  ProvenanceError,
+  type CompletedMediaProcessing,
+  type ProvenanceAction,
+  type ProvenanceProof,
+  type ProvenanceV2Record,
+} from "./provenance";
 import {
   transcodeMedia,
   TranscodeError,
@@ -19,6 +26,7 @@ export interface VerificationResult {
   assetId: string;
   policyId: string;
   owner: string;
+  sourceContentHash: string;
   action: RightsAction;
   decision: "allow" | "deny";
   authorized: boolean;
@@ -62,6 +70,7 @@ export function verifyPermission(
       assetId: asset.assetId,
       policyId: asset.policy.policyId,
       owner: asset.owner,
+      sourceContentHash: asset.sourceContentHash,
       action,
       decision: "deny",
       authorized: false,
@@ -85,6 +94,7 @@ export function verifyPermission(
     assetId: asset.assetId,
     policyId: asset.policy.policyId,
     owner: asset.owner,
+    sourceContentHash: asset.sourceContentHash,
     action,
     decision,
     authorized,
@@ -116,8 +126,7 @@ interface ExecutionContext {
   derivedAssetId: string;
   action: ProvenanceAction;
   authorization: VerificationResult;
-  // This checkpoint stops before any proof, blockchain or economic operation.
-  provenanceCreated: false;
+  // Blockchain and economic operations remain disconnected at this checkpoint.
   solanaAnchored: false;
   royaltyEventCreated: false;
 }
@@ -131,15 +140,21 @@ export type ExecutionResult = ExecutionContext & (
       processingCompleted: false;
       executionId: null;
       processingResult: null;
+      provenanceCreated: false;
+      provenance: null;
+      proof: null;
     }
   | {
       status: "failed";
-      stage: "request_validation" | "source_validation" | "processing";
+      stage: "request_validation" | "source_validation" | "processing" | "provenance";
       error: { code: string; message: string };
       processorInvoked: boolean;
-      processingCompleted: false;
-      executionId: null;
-      processingResult: null;
+      processingCompleted: boolean;
+      executionId: string | null;
+      processingResult: TranscodeResult | null;
+      provenanceCreated: false;
+      provenance: null;
+      proof: null;
     }
   | {
       status: "processed";
@@ -147,6 +162,9 @@ export type ExecutionResult = ExecutionContext & (
       processingCompleted: true;
       executionId: string;
       processingResult: TranscodeResult;
+      provenanceCreated: true;
+      provenance: ProvenanceV2Record;
+      proof: ProvenanceProof<ProvenanceV2Record>;
     }
 );
 
@@ -167,7 +185,6 @@ export async function executeAuthorizedTransformation(
     derivedAssetId,
     action,
     authorization,
-    provenanceCreated: false,
     solanaAnchored: false,
     royaltyEventCreated: false,
   };
@@ -181,6 +198,9 @@ export async function executeAuthorizedTransformation(
       processingCompleted: false,
       executionId: null,
       processingResult: null,
+      provenanceCreated: false,
+      provenance: null,
+      proof: null,
     };
   }
 
@@ -192,6 +212,7 @@ export async function executeAuthorizedTransformation(
   ): ExecutionResult => ({
     ...context, status: "failed", stage, error: { code, message },
     processorInvoked, processingCompleted: false, executionId: null, processingResult: null,
+    provenanceCreated: false, provenance: null, proof: null,
   });
   if (action !== "transcoding") {
     return fail("request_validation", "UNSUPPORTED_ACTION", "Only transcoding has a real media processor.");
@@ -213,21 +234,40 @@ export async function executeAuthorizedTransformation(
     return fail("source_validation", "SOURCE_READ_FAILED", error instanceof Error ? error.message : "Cannot read registered source media.");
   }
 
+  let processingResult: TranscodeResult;
   try {
     // The adapter independently verifies the exact snapshot it feeds to FFmpeg.
-    const processingResult = await processor({
+    processingResult = await processor({
       sourceFilePath: snapshot.sourceFilePath,
       expectedSourceContentHash: snapshot.sourceContentHash,
       outputDirectory,
     }, processorOptions);
-    return {
-      ...context, status: "processed", processorInvoked: true, processingCompleted: true,
-      executionId: processingResult.executionId, processingResult,
-    };
   } catch (error) {
     return fail(
       "processing", error instanceof TranscodeError ? error.code : "PROCESSING_FAILED",
       error instanceof Error ? error.message : "Media processing failed.", true,
     );
+  }
+
+  try {
+    const completed: CompletedMediaProcessing = {
+      ...context, status: "processed", processorInvoked: true, processingCompleted: true,
+      executionId: processingResult.executionId, processingResult,
+    };
+    // Uses only the execution-owned authorization and completed processing result.
+    // The factory independently validates output bytes before constructing a record.
+    const proof = await createProvenanceV2Proof(completed);
+    return { ...completed, ...context, provenanceCreated: true, provenance: proof.record, proof };
+  } catch (error) {
+    return {
+      ...context, status: "failed", stage: "provenance",
+      error: {
+        code: error instanceof ProvenanceError ? error.code : "PROVENANCE_FAILED",
+        message: error instanceof Error ? error.message : "Cannot create verified provenance.",
+      },
+      processorInvoked: true, processingCompleted: true,
+      executionId: processingResult?.executionId ?? null, processingResult,
+      provenanceCreated: false, provenance: null, proof: null,
+    };
   }
 }

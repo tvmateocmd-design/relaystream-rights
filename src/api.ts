@@ -495,7 +495,7 @@ const server = http.createServer(
           return;
         }
 
-        // Checkpoint 2 returns processing only; no proof exists to anchor yet.
+        // Checkpoint 3 returns verified provenance; anchoring and royalties stay inactive.
         const execution = await executeAuthorizedTransformation(
           asset,
           body.action,
