@@ -13,6 +13,7 @@ import {
 } from "./index";
 import { hashRightsPolicy, registerMedia, type Permission } from "./register-media";
 import { transcodeMedia } from "./transcode-media";
+import { localAnchorDependencies } from "./anchor-test-support";
 
 const run = promisify(execFile);
 
@@ -47,11 +48,11 @@ async function fixture(t: TestContext, permission: Permission) {
 }
 
 function assertNoDownstreamEffects(result: ExecutionResult) {
-  assert.equal(result.solanaAnchored, false);
+  assert.equal(result.solanaAnchored, result.status === "processed");
   assert.equal(result.royaltyEventCreated, false);
   assert.equal("provenanceHash" in result, false);
   assert.equal("record" in result, false);
-  assert.equal("solanaSignature" in result, false);
+  assert.equal(result.solanaSignature === null, result.status !== "processed");
   assert.equal("royalty" in result, false);
   if (result.status === "processed") {
     assert.equal(result.provenanceCreated, true);
@@ -72,7 +73,7 @@ test("ALLOW invokes the real adapter once and returns validated output bytes and
   const { asset, outputDirectory } = await fixture(t, "allow");
   const processor = t.mock.fn(transcodeMedia);
   const result = await executeAuthorizedTransformation(
-    asset, "transcoding", "derived-allow", { outputDirectory }, { processor },
+    asset, "transcoding", "derived-allow", { outputDirectory }, { processor, ...localAnchorDependencies() },
   );
   assert.equal(result.status, "processed");
   assert.equal(processor.mock.callCount(), 1);
@@ -174,7 +175,7 @@ test("asset, nested policy and processor configuration are captured before async
   const registeredPath = asset.sourceFilePath;
   const processor = t.mock.fn(transcodeMedia);
   const options = { outputDirectory, processorOptions: { timeoutMs: 120_000 } };
-  const dependencies: ExecutionDependencies = { processor };
+  const dependencies: ExecutionDependencies = { processor, ...localAnchorDependencies() };
   const pending = executeAuthorizedTransformation(asset, "transcoding", "derived-snapshot", options, dependencies);
   asset.policy.transcoding = "deny";
   asset.policy.policyId = "changed-policy";

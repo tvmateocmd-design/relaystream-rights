@@ -495,7 +495,7 @@ const server = http.createServer(
           return;
         }
 
-        // Checkpoint 3 returns verified provenance; anchoring and royalties stay inactive.
+        // Shared workflow verifies and anchors v2; royalties remain inactive.
         const execution = await executeAuthorizedTransformation(
           asset,
           body.action,

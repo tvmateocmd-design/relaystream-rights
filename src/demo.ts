@@ -126,9 +126,9 @@ async function runDemo() {
     );
   }
 
-  console.log("\nCHECKPOINT 3: AUTHORIZED MEDIA AND PROVENANCE COMPLETE");
+  console.log("\nCHECKPOINT 4: VERIFIED MEDIA PROVENANCE ANCHORED TO DEVNET");
   console.log(JSON.stringify(execution, null, 2));
-  // Anchoring and royalties are reserved for later checkpoints.
+  // Royalties remain disconnected.
 
   // Preserve the original on-chain checks; no proof is passed to this helper.
   async function runLegacyProofChecks(proof: ProvenanceProof) {
@@ -141,7 +141,7 @@ async function runDemo() {
      * Anchor the provenance proof to Solana Devnet.
      */
     const anchor = await anchorProvenanceProof(
-      proof.provenanceHash
+      proof.provenanceHash, undefined, proof.record.schemaVersion === 2 ? 2 : 1
     );
 
     console.log(
@@ -164,7 +164,7 @@ async function runDemo() {
     const verification =
       await verifyProvenanceOnChain(
         anchor.signature,
-        proof.record
+        proof.record, anchor.signer
       );
 
     if (!verification.verified) {
@@ -201,7 +201,7 @@ async function runDemo() {
     const tamperedVerification =
       await verifyProvenanceOnChain(
         anchor.signature,
-        tamperedRecord
+        tamperedRecord, anchor.signer
       );
 
     console.log("\n======================================");
@@ -328,7 +328,7 @@ async function runDemo() {
     const mediaTamperedVerification =
       await verifyProvenanceOnChain(
         anchor.signature,
-        mediaTamperedRecord
+        mediaTamperedRecord, anchor.signer
       );
 
     console.log("\n======================================");
@@ -430,7 +430,7 @@ async function runDemo() {
     const policyTamperedVerification =
       await verifyProvenanceOnChain(
         anchor.signature,
-        policyTamperedRecord
+        policyTamperedRecord, anchor.signer
       );
 
     console.log("\n======================================");

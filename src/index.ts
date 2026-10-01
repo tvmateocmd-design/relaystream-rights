@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createProvenanceV2Proof,
+  verifyProvenanceProof,
   ProvenanceError,
   type CompletedMediaProcessing,
   type ProvenanceAction,
@@ -15,6 +16,8 @@ import {
   type TranscodeOptions,
   type TranscodeResult,
 } from "./transcode-media";
+import { anchorProvenanceProof, AnchorError, getDevnetAuthority, provenanceMemo, type AnchorResult } from "./anchor-provenance";
+import { verifyProvenanceOnChain, type VerificationResult as OnChainVerification } from "./verify-provenance";
 
 import {
   hashRightsPolicy,
@@ -119,6 +122,21 @@ export interface ExecutionOptions {
 
 export interface ExecutionDependencies {
   processor: typeof transcodeMedia;
+  createProof?: typeof createProvenanceV2Proof;
+  anchor?: typeof anchorProvenanceProof;
+  getAuthority?: typeof getDevnetAuthority;
+  verifyAnchor?: typeof verifyProvenanceOnChain;
+}
+
+export interface AnchorReceipt {
+  state: "verified" | "failed";
+  stage: "preflight" | "submission" | "confirmation" | "verification";
+  transactionStatus: "not_submitted" | "unknown" | "failed" | "confirmed";
+  signature: string | null;
+  expectedAuthority: string | null;
+  submission: AnchorResult | null;
+  verification: OnChainVerification | null;
+  error: string | null;
 }
 
 interface ExecutionContext {
@@ -126,8 +144,9 @@ interface ExecutionContext {
   derivedAssetId: string;
   action: ProvenanceAction;
   authorization: VerificationResult;
-  // Blockchain and economic operations remain disconnected at this checkpoint.
-  solanaAnchored: false;
+  solanaAnchored: boolean;
+  solanaSignature: string | null;
+  anchor: AnchorReceipt | null;
   royaltyEventCreated: false;
 }
 
@@ -157,6 +176,20 @@ export type ExecutionResult = ExecutionContext & (
       proof: null;
     }
   | {
+      status: "failed";
+      stage: "anchor";
+      error: { code: string; message: string };
+      processorInvoked: true;
+      processingCompleted: true;
+      executionId: string;
+      processingResult: TranscodeResult;
+      provenanceCreated: true;
+      provenance: ProvenanceV2Record;
+      proof: ProvenanceProof<ProvenanceV2Record>;
+      solanaAnchored: false;
+      anchor: AnchorReceipt;
+    }
+  | {
       status: "processed";
       processorInvoked: true;
       processingCompleted: true;
@@ -165,6 +198,9 @@ export type ExecutionResult = ExecutionContext & (
       provenanceCreated: true;
       provenance: ProvenanceV2Record;
       proof: ProvenanceProof<ProvenanceV2Record>;
+      solanaAnchored: true;
+      solanaSignature: string;
+      anchor: AnchorReceipt;
     }
 );
 
@@ -186,6 +222,8 @@ export async function executeAuthorizedTransformation(
     action,
     authorization,
     solanaAnchored: false,
+    solanaSignature: null,
+    anchor: null,
     royaltyEventCreated: false,
   };
   if (!authorization.authorized || !authorization.policyIntegrityValid) {
@@ -224,6 +262,11 @@ export async function executeAuthorizedTransformation(
   const outputDirectory = path.resolve(options.outputDirectory ?? "generated-media");
   const processorOptions = { ...options.processorOptions };
   const processor = dependencies.processor;
+  const createProof = dependencies.createProof ?? createProvenanceV2Proof;
+  const anchorProof = dependencies.anchor ?? anchorProvenanceProof;
+  const getAuthority = dependencies.getAuthority ?? getDevnetAuthority;
+  const verifyAnchor = dependencies.verifyAnchor ?? verifyProvenanceOnChain;
+  let proof: ProvenanceProof<ProvenanceV2Record>;
   try {
     const sourceBytes = await readFile(snapshot.sourceFilePath);
     const currentSourceHash = createHash("sha256").update(sourceBytes).digest("hex");
@@ -256,8 +299,11 @@ export async function executeAuthorizedTransformation(
     };
     // Uses only the execution-owned authorization and completed processing result.
     // The factory independently validates output bytes before constructing a record.
-    const proof = await createProvenanceV2Proof(completed);
-    return { ...completed, ...context, provenanceCreated: true, provenance: proof.record, proof };
+    proof = await createProof(completed);
+    // The anchor boundary independently checks the completed proof before ANY Solana dependency.
+    if (proof.record.schemaVersion !== 2 || !verifyProvenanceProof(proof)) {
+      throw new ProvenanceError("PROOF_VERIFICATION_FAILED", "Completed Provenance v2 proof failed local hash verification.");
+    }
   } catch (error) {
     return {
       ...context, status: "failed", stage: "provenance",
@@ -268,6 +314,51 @@ export async function executeAuthorizedTransformation(
       processorInvoked: true, processingCompleted: true,
       executionId: processingResult?.executionId ?? null, processingResult,
       provenanceCreated: false, provenance: null, proof: null,
+    };
+  }
+
+  const localResult = {
+    ...context, processorInvoked: true as const, processingCompleted: true as const,
+    executionId: processingResult.executionId, processingResult,
+    provenanceCreated: true as const, provenance: proof.record, proof,
+  };
+  let expectedAuthority: string | null = null;
+  let submission: AnchorResult | null = null;
+  let verification: OnChainVerification | null = null;
+  let anchorStage: AnchorReceipt["stage"] = "preflight";
+  try {
+    expectedAuthority = getAuthority();
+    anchorStage = "submission";
+    submission = await anchorProof(proof.provenanceHash, expectedAuthority, 2);
+    anchorStage = "verification";
+    const expectedMemo = provenanceMemo(proof.provenanceHash, 2);
+    if (!submission.confirmed || submission.network !== "devnet" || submission.signer !== expectedAuthority
+      || submission.provenanceHash !== proof.provenanceHash || submission.memo !== expectedMemo || !submission.signature) {
+      throw new Error("Anchor response does not describe the expected confirmed Devnet commitment.");
+    }
+    // A fresh connection fetches the exact signature; submission logs are never evidence.
+    verification = await verifyAnchor(submission.signature, proof.record, expectedAuthority);
+    if (!verification.verified || !verification.transactionSucceeded || verification.signature !== submission.signature
+      || verification.computedHash !== proof.provenanceHash || verification.expectedMemo !== expectedMemo
+      || verification.onChainMemo !== expectedMemo || verification.expectedAuthority !== expectedAuthority
+      || verification.verifiedAuthority !== expectedAuthority || verification.network !== "devnet") {
+      throw new Error(verification.reason || "Independent Devnet verification failed.");
+    }
+    return {
+      ...localResult, status: "processed", solanaAnchored: true, solanaSignature: submission.signature,
+      anchor: { state: "verified", stage: "verification", transactionStatus: "confirmed", signature: submission.signature,
+        expectedAuthority, submission, verification, error: null },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Solana anchoring failed.";
+    const signature = error instanceof AnchorError ? error.signature : submission?.signature ?? null;
+    return {
+      ...localResult, status: "failed", stage: "anchor", error: { code: "ANCHOR_FAILED", message },
+      solanaAnchored: false, solanaSignature: signature,
+      anchor: { state: "failed", stage: error instanceof AnchorError ? error.stage : anchorStage,
+        transactionStatus: error instanceof AnchorError ? error.transactionStatus : submission?.confirmed ? "confirmed"
+          : anchorStage === "preflight" ? "not_submitted" : "unknown",
+        signature, expectedAuthority, submission, verification, error: message },
     };
   }
 }
