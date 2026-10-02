@@ -4,6 +4,8 @@
   "description": "Programmable media rights infrastructure on Solana. RelayStream Rights enables machine-readable licensing, permission verification, and provenance so applications and AI agents can determine what they are authorized to do with digital media. Built for Colosseum Crypto World’s Fair 2026.",
   "main": "index.js",
   "scripts": {
+    "demo": "tsx src/api.ts --demo",
+    "test:demo": "tsx --test src/demo-infrastructure.test.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:media": "tsx --test src/transcode-media.test.ts",
     "test:authorization-processing": "tsx --test src/authorization-processing.test.ts",

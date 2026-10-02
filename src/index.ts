@@ -6,7 +6,6 @@ import {
   verifyProvenanceProof,
   ProvenanceError,
   type CompletedMediaProcessing,
-  type ProvenanceAction,
   type ProvenanceProof,
   type ProvenanceV2Record,
 } from "./provenance";
@@ -20,6 +19,7 @@ import { anchorProvenanceProof, AnchorError, getDevnetAuthority, provenanceMemo,
 import { verifyProvenanceOnChain, type VerificationResult as OnChainVerification } from "./verify-provenance";
 import { createDemoRoyaltyRule, prepareRoyaltyRequest, createRoyaltyEvent, RoyaltyError, type PreparedRoyaltyRequest, type RoyaltyReceipt } from "./royalties";
 import { FileRoyaltyEventStore, type RoyaltyEventStore } from "./royalty-event-store";
+import { notifyExecutionObserver, type ExecutionObserver } from "./execution-observer";
 
 import {
   hashRightsPolicy,
@@ -118,6 +118,7 @@ export function verifyPermission(
 }
 
 export interface ExecutionOptions {
+  observer?: ExecutionObserver;
   outputDirectory?: string;
   processorOptions?: TranscodeOptions;
   usageAmount?: number | string;
@@ -148,7 +149,7 @@ export interface AnchorReceipt {
 interface ExecutionContext {
   assetId: string;
   derivedAssetId: string;
-  action: ProvenanceAction;
+  action: RightsAction;
   authorization: VerificationResult;
   solanaAnchored: boolean;
   solanaSignature: string | null;
@@ -187,6 +188,7 @@ export type ExecutionResult = ExecutionContext & (
   | {
       status: "failed";
       stage: "anchor";
+      action: "transcoding";
       error: { code: string; message: string };
       processorInvoked: true;
       processingCompleted: true;
@@ -201,6 +203,7 @@ export type ExecutionResult = ExecutionContext & (
   | {
       status: "failed";
       stage: "royalty";
+      action: "transcoding";
       error: { code: string; message: string };
       processorInvoked: true;
       processingCompleted: true;
@@ -218,6 +221,7 @@ export type ExecutionResult = ExecutionContext & (
     }
   | {
       status: "processed";
+      action: "transcoding";
       processorInvoked: true;
       processingCompleted: true;
       executionId: string;
@@ -236,11 +240,15 @@ export type ExecutionResult = ExecutionContext & (
 
 export async function executeAuthorizedTransformation(
   asset: RegisteredMediaAsset,
-  action: ProvenanceAction,
+  action: RightsAction,
   derivedAssetId: string,
   options: ExecutionOptions = {},
   dependencies: ExecutionDependencies = { processor: transcodeMedia },
 ): Promise<ExecutionResult> {
+  // Detach configuration and dependency references before any observer notification.
+  const capturedOptions = { ...options, processorOptions: { ...options.processorOptions } };
+  const runtime = { ...dependencies };
+  const observer = capturedOptions.observer;
   // Copy both the asset and nested policy before checking permission or awaiting IO.
   const snapshot = structuredClone(asset);
   Object.freeze(snapshot.policy);
@@ -260,6 +268,7 @@ export async function executeAuthorizedTransformation(
     fundsTransferred: false,
   };
   if (!authorization.authorized || !authorization.policyIntegrityValid) {
+    notifyExecutionObserver(observer, "BLOCKED");
     return {
       ...context,
       status: "blocked",
@@ -274,6 +283,8 @@ export async function executeAuthorizedTransformation(
       proof: null,
     };
   }
+
+  notifyExecutionObserver(observer, "AUTHORIZED");
 
   const fail = (
     stage: "request_validation" | "source_validation" | "processing",
@@ -294,20 +305,20 @@ export async function executeAuthorizedTransformation(
   let royaltyRequest: PreparedRoyaltyRequest;
   try {
     royaltyRequest = prepareRoyaltyRequest(snapshot.royaltyRule ?? createDemoRoyaltyRule(snapshot.assetId), snapshot.assetId,
-      options.usageAmount === undefined ? 100 : options.usageAmount);
+      capturedOptions.usageAmount === undefined ? 100 : capturedOptions.usageAmount);
   } catch (error) {
     return fail("request_validation", "INVALID_ROYALTY_REQUEST", error instanceof Error ? error.message : "Invalid royalty rule or usage amount.");
   }
   // Capture configuration as well, so callers cannot change it across the await.
-  const outputDirectory = path.resolve(options.outputDirectory ?? "generated-media");
-  const processorOptions = { ...options.processorOptions };
-  const processor = dependencies.processor;
-  const createProof = dependencies.createProof ?? createProvenanceV2Proof;
-  const anchorProof = dependencies.anchor ?? anchorProvenanceProof;
-  const getAuthority = dependencies.getAuthority ?? getDevnetAuthority;
-  const verifyAnchor = dependencies.verifyAnchor ?? verifyProvenanceOnChain;
-  const createRoyalty = dependencies.createRoyalty ?? createRoyaltyEvent;
-  const royaltyStore = dependencies.royaltyStore ?? new FileRoyaltyEventStore(options.royaltyLedgerDirectory ?? "royalty-ledger");
+  const outputDirectory = path.resolve(capturedOptions.outputDirectory ?? "generated-media");
+  const processorOptions = capturedOptions.processorOptions;
+  const processor = runtime.processor;
+  const createProof = runtime.createProof ?? createProvenanceV2Proof;
+  const anchorProof = runtime.anchor ?? anchorProvenanceProof;
+  const getAuthority = runtime.getAuthority ?? getDevnetAuthority;
+  const verifyAnchor = runtime.verifyAnchor ?? verifyProvenanceOnChain;
+  const createRoyalty = runtime.createRoyalty ?? createRoyaltyEvent;
+  const royaltyStore = runtime.royaltyStore ?? new FileRoyaltyEventStore(capturedOptions.royaltyLedgerDirectory ?? "royalty-ledger");
   let proof: ProvenanceProof<ProvenanceV2Record>;
   try {
     const sourceBytes = await readFile(snapshot.sourceFilePath);
@@ -322,11 +333,13 @@ export async function executeAuthorizedTransformation(
   let processingResult: TranscodeResult;
   try {
     // The adapter independently verifies the exact snapshot it feeds to FFmpeg.
-    processingResult = await processor({
+    const processing = processor({
       sourceFilePath: snapshot.sourceFilePath,
       expectedSourceContentHash: snapshot.sourceContentHash,
       outputDirectory,
     }, processorOptions);
+    notifyExecutionObserver(observer, "PROCESSING");
+    processingResult = await processing;
   } catch (error) {
     return fail(
       "processing", error instanceof TranscodeError ? error.code : "PROCESSING_FAILED",
@@ -337,15 +350,16 @@ export async function executeAuthorizedTransformation(
   try {
     const completed: CompletedMediaProcessing = {
       ...context, status: "processed", processorInvoked: true, processingCompleted: true,
-      executionId: processingResult.executionId, processingResult,
+      action, executionId: processingResult.executionId, processingResult,
     };
     // Uses only the execution-owned authorization and completed processing result.
     // The factory independently validates output bytes before constructing a record.
-    proof = await createProof(completed);
+    proof = await createProof(completed, observer);
     // The anchor boundary independently checks the completed proof before ANY Solana dependency.
     if (proof.record.schemaVersion !== 2 || !verifyProvenanceProof(proof)) {
       throw new ProvenanceError("PROOF_VERIFICATION_FAILED", "Completed Provenance v2 proof failed local hash verification.");
     }
+    notifyExecutionObserver(observer, "PROVENANCE_V2");
   } catch (error) {
     return {
       ...context, status: "failed", stage: "provenance",
@@ -360,7 +374,7 @@ export async function executeAuthorizedTransformation(
   }
 
   const localResult = {
-    ...context, processorInvoked: true as const, processingCompleted: true as const,
+    ...context, action, processorInvoked: true as const, processingCompleted: true as const,
     executionId: processingResult.executionId, processingResult,
     provenanceCreated: true as const, provenance: proof.record, proof,
   };
@@ -405,10 +419,12 @@ export async function executeAuthorizedTransformation(
     };
   }
   const anchored = { ...localResult, solanaAnchored: true as const, solanaSignature: verifiedSignature, anchor: verifiedReceipt };
+  notifyExecutionObserver(observer, "SOLANA_VERIFIED");
   try {
     // The royalty factory rechecks the exact verified proof/anchor binding and commits
     // event plus allocation atomically under the execution's idempotency key.
     const royalty = await createRoyalty(anchored, royaltyRequest, royaltyStore);
+    notifyExecutionObserver(observer, "ROYALTY_ALLOCATED");
     return { ...anchored, status: "processed", royaltyEventCreated: true, royaltyAllocated: true, royalty };
   } catch (error) {
     return { ...anchored, status: "failed", stage: "royalty", royaltyEventCreated: false, royaltyAllocated: false, royalty: null,

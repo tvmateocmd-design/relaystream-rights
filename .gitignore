@@ -1,5 +1,6 @@
 # Logs
 royalty-ledger/
+generated-media/
 logs
 *.log
 npm-debug.log*

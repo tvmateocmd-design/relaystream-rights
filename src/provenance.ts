@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { TRANSCODE_PROFILE, type TranscodeResult } from "./transcode-media";
 import { verifyOutputContent } from "./verify-output";
+import { notifyExecutionObserver, type ExecutionObserver } from "./execution-observer";
 
 export type ProvenanceAction =
   | "derivatives"
@@ -230,6 +231,7 @@ function validateCompletion(completed: CompletedMediaProcessing): void {
 /** No record is constructed until authorization, metadata and output bytes pass. */
 export async function createProvenanceV2Proof(
   completion: CompletedMediaProcessing,
+  observer?: ExecutionObserver,
 ): Promise<ProvenanceProof<ProvenanceV2Record>> {
   // Protect the provenance input while independent file verification awaits IO.
   const completed = structuredClone(completion);
@@ -239,6 +241,7 @@ export async function createProvenanceV2Proof(
   if (!verification.verified) {
     throw new ProvenanceError("OUTPUT_VERIFICATION_FAILED", verification.reason);
   }
+  notifyExecutionObserver(observer, "OUTPUT_VERIFIED");
   const a = completed.authorization;
   const p = output.processing;
   const profile = Object.freeze({
