@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>RelayStream Rights · Media execution demo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to demonstration</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="RelayStream Rights home">
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span><strong>RelayStream <span class="brand-rights">Rights</span></strong><small>Rights-aware media processing</small></span>
+    </a>
+    <div class="header-status"><span class="network-label">SOLANA DEVNET</span><span id="connection" class="connection pending" role="status">Connecting to API</span></div>
+  </header>
+  <main id="main" class="page-shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">REGISTERED MEDIA / VERIFIED EXECUTION</p><h1 id="page-title">Permission first.<br><span>Proof in every frame.</span></h1>
+        <p class="intro-copy">One registered video. Explicit rights. A prohibited request stops at the gate; authorized processing produces a verifiable media proof.</p></div>
+      <div class="scope-note"><span class="scope-icon" aria-hidden="true">↳</span><div><strong>Transcoding is the implemented workflow</strong><p>The policy also describes training, derivatives and commercial use.</p></div></div>
+    </section>
+    <div id="global-message" class="notice" role="status" hidden></div>
+    <section class="asset-grid" aria-label="Registered asset and rights policy">
+      <article class="panel asset-panel">
+        <div class="panel-heading"><span class="eyebrow">01 / REGISTERED SOURCE</span><span class="tag">MP4 SOURCE</span></div>
+        <div class="source-screen"><video id="source-player" controls preload="metadata" playsinline aria-label="Registered source video"></video><p id="source-message" class="media-message">Loading the registered media asset…</p></div>
+        <div class="asset-caption"><h2 id="asset-title">Registered video</h2><dl class="inline-meta"><div><dt>ASSET ID</dt><dd id="asset-id">Waiting for API</dd></div><div><dt>PUBLISHER</dt><dd id="publisher">Waiting for API</dd></div></dl></div>
+      </article>
+      <article class="panel policy-panel">
+        <div class="panel-heading"><span class="eyebrow">MACHINE-READABLE RIGHTS</span><span id="policy-id" class="tag">Loading policy</span></div>
+        <h2>The policy sets the boundary.</h2>
+        <p class="muted">Each request is checked against the registered policy before any processing begins.</p>
+        <ul id="rights-list" class="rights-list" aria-label="Registered permissions"></ul>
+        <div class="policy-footer"><p id="policy-requirements" class="muted">Loading policy requirements…</p><details><summary>View machine-readable policy</summary><pre id="policy-json"></pre></details></div>
+      </article>
+    </section>
+    <section class="demo-grid" aria-label="Two-step execution demonstration">
+      <article class="panel action-panel" aria-labelledby="deny-title">
+        <div class="step-label"><span class="step-number">1</span><span>PROHIBITED ACTION</span></div>
+        <h2 id="deny-title">Test the boundary.</h2><p class="muted">Request AI training against this asset’s rights policy.</p>
+        <button id="deny-button" class="button button-secondary" disabled>Request AI Training <span aria-hidden="true">↗</span></button>
+        <div id="deny-receipt" class="deny-receipt" hidden>
+          <h3>AI TRAINING — DENIED</h3><p id="deny-reason"></p><ul id="deny-checks" class="deny-checks"></ul>
+        </div>
+        <p id="deny-status" class="action-status" role="status">Waiting for registered asset.</p>
+      </article>
+      <article class="panel action-panel authorized-panel" aria-labelledby="allow-title">
+        <div class="step-label"><span class="step-number">2</span><span>AUTHORIZED ACTION</span></div>
+        <h2 id="allow-title">Process with permission.</h2><p class="muted">Transcode the actual video, bind its output to provenance and independently verify the Devnet anchor.</p>
+        <button id="allow-button" class="button button-primary" disabled>Transcode Authorized Media <span aria-hidden="true">→</span></button>
+        <p class="request-amount">REQUESTED USAGE <strong>100.00 <span>USD-DEMO</span></strong></p>
+        <p id="allow-lock" class="action-status">Complete the DENY demonstration first.</p>
+      </article>
+    </section>
+    <section class="panel execution-panel" aria-labelledby="execution-title">
+      <div class="panel-heading"><div><p class="eyebrow">ACTUAL BACKEND MILESTONES</p><h2 id="execution-title">Execution trace</h2></div><span id="execution-outcome" class="tag">NOT STARTED</span></div>
+      <ol id="timeline" class="timeline"></ol>
+      <p id="execution-message" class="execution-message" role="status">Submit the authorized transcoding request after the prohibited-action demonstration.</p>
+      <p id="request-reference" class="request-reference" hidden></p>
+      <button id="reconnect-button" class="button button-secondary small-button" hidden>Reconnect to saved request</button>
+    </section>
+    <section id="comparison" class="panel comparison-panel" aria-labelledby="comparison-title" hidden>
+      <div class="panel-heading"><div><p class="eyebrow">COMPLETED MEDIA PROCESSING</p><h2 id="comparison-title">Source → verified output</h2></div><span class="tag">ACTUAL MEDIA BYTES</span></div>
+      <div class="media-grid"><figure><video id="comparison-source" controls preload="metadata" playsinline aria-label="Original source for comparison"></video><figcaption><strong>Registered source</strong><span>Original asset bytes</span></figcaption></figure>
+        <figure><video id="output-player" controls preload="metadata" playsinline aria-label="Verified transcoded output"></video><figcaption><strong>Transcoded output</strong><span id="output-format"></span></figcaption></figure></div>
+      <p id="output-message" class="media-error" role="status" hidden></p>
+    </section>
+    <div class="results-grid">
+      <section class="panel evidence-panel" aria-labelledby="proof-title">
+        <div class="panel-heading"><div><p class="eyebrow">CHECKABLE COMMITMENTS</p><h2 id="proof-title">Proof evidence</h2></div><span class="tag">SHA-256</span></div>
+        <p id="evidence-empty" class="empty-state">Hashes and verification evidence appear from the completed execution receipt.</p>
+        <dl id="proof-values" class="proof-values"></dl><dl id="processing-values" class="processing-values"></dl>
+        <div class="proof-actions"><a id="explorer-link" class="button button-secondary small-button" target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">View Devnet transaction ↗</a>
+          <button id="download-button" class="button button-secondary small-button" disabled>Download proof receipt</button></div>
+        <p id="explorer-status" class="muted small-text">Explorer is enabled only after matching independent verification.</p>
+        <span id="copy-status" class="sr-only" role="status"></span>
+      </section>
+      <section class="panel allocation-panel" aria-labelledby="allocation-title">
+        <div class="panel-heading"><div><p class="eyebrow">DETERMINISTIC ACCOUNTING</p><h2 id="allocation-title">Royalty allocation</h2></div><span class="tag">USD-DEMO</span></div>
+        <p id="allocation-empty" class="empty-state">Allocation appears only after independently verified anchoring.</p>
+        <div id="allocation-content" hidden><div class="table-scroll"><table><caption class="sr-only">Returned royalty allocation in USD-DEMO</caption><thead><tr><th scope="col">Recipient</th><th scope="col">Share</th><th scope="col">Amount</th><th scope="col">Minor units</th></tr></thead><tbody id="allocation-rows"></tbody></table></div>
+          <div id="conservation" class="conservation"></div><p id="allocation-method" class="small-text muted"></p><p id="royalty-event-id" class="request-reference"></p></div>
+        <div class="funds-banner"><span aria-hidden="true">▣</span><strong>FUNDS TRANSFERRED: NO — ALLOCATION ONLY</strong></div>
+        <p class="small-text muted">USD-DEMO is an accounting denomination. This workflow records allocation and does not transfer funds.</p>
+      </section>
+    </div>
+    <footer class="site-footer"><span>RelayStream Rights</span><span>Policy → media → provenance → independently verified anchor → allocation</span></footer>
+  </main>
+</body>
+</html>
